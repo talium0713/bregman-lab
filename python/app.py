@@ -33,8 +33,20 @@ rg.REG["adiv"] = make_adiv(ADIV_A)
 st.set_page_config(page_title="Off-policy admissibility lab", layout="wide")
 
 
+import io
+
+
 def kl_kw(rk, base=1.6):
     return dict(lw=3.2 if rk == "kl" else base, zorder=8 if rk == "kl" else 3)
+
+
+def show(fig, container=None):
+    """Render a matplotlib fig as a PNG image (small by default; Streamlit's hover
+    fullscreen icon enlarges it on click)."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=115, bbox_inches="tight")
+    plt.close(fig)
+    (container or st).image(buf.getvalue(), width="stretch")
 
 
 # ───────────────────────── sidebar settings ─────────────────────────
@@ -150,7 +162,7 @@ def fig_mdp(rewards, eps):
 with st.container():
     st.markdown("#### MDP instance (seed 0) — used by tabs ①②④⑤")
     rew0 = rewards_for(depth)
-    st.pyplot(fig_mdp(rew0, eps))
+    show(fig_mdp(rew0, eps))
     st.caption(r"Layered MDP: depth $\times$ 3 states $\times$ 3 actions. Action $a$ reaches its target "
                r"state w.p. $1-\varepsilon$, else uniform over the rest. Node label = the 3 action "
                r"rewards $[r_{a_1}, r_{a_2}, r_{a_3}]\sim\mathrm{Uniform}(-0.8,0.8)$; reference policy "
@@ -189,7 +201,7 @@ with t1:
     ax.set_xscale("log"); ax.set_xlabel("regularization weight α")
     ax.set_ylabel(r"peak  $\mathbb{E}_s[\max_a \pi^*(a|s)]$")
     ax.set_title("α–peak sweep — calibrated α (dots) all hit the common peak"); ax.legend(fontsize=7.5, ncol=2)
-    fig.tight_layout(); st.pyplot(fig)
+    fig.tight_layout(); show(fig)
 
 # ── ② §4.2 variance ──
 with t2:
@@ -208,7 +220,7 @@ with t2:
             b.plot(np.log2(ns), [ssv[rk][n]["std"] for n in ns], color=COLORS[rk], marker="s", ms=3, **kl_kw(rk))
         a.set_title(r"single state — $\hat C_\Omega$ (±1σ)"); a.set_xlabel("log2 n"); a.legend(fontsize=6, ncol=2)
         b.set_title(r"single state — std vs n (KL $\equiv$ 0)"); b.set_xlabel("log2 n")
-        fig.tight_layout(); st.pyplot(fig)
+        fig.tight_layout(); show(fig)
     with c2:
         fig, (a, b) = plt.subplots(2, 1, figsize=(5.5, 6))
         for rk in REGKEYS:
@@ -218,14 +230,26 @@ with t2:
             b.plot(Hs, [tjv[rk][H]["std"] for H in Hs], color=COLORS[rk], marker="s", ms=3, **kl_kw(rk))
         a.set_title(r"trajectory — $\sum_t \hat C_\Omega$ (±1σ)"); a.set_xlabel("horizon H"); a.legend(fontsize=6, ncol=2)
         b.set_title(r"trajectory — std vs H ($\sqrt{H-1}$)"); b.set_xlabel("horizon H")
-        fig.tight_layout(); st.pyplot(fig)
+        fig.tight_layout(); show(fig)
 
 # ── ③ §4.3 n_mc sweep ──
 with t3:
     st.subheader("§4.3 — trained-policy gap Δπ vs Monte-Carlo budget n_mc")
-    st.markdown(r"$\Delta_\pi$ (mean TV over states) vs $n_{mc}$. **on-policy** = $\pi^*_\Omega$ rollouts, "
-                r"**off-policy** = $\pi_{\mathrm{ref}}$ rollouts; both resample $n_{mc}$ inner samples. "
-                r"KL stays **flat & lowest**; non-KL start high at $n_{mc}=1$ and decay toward KL.")
+    st.markdown(r"$\Delta_\pi$ (mean TV over states) vs $n_{mc}$. KL stays **flat & lowest**; "
+                r"non-KL start high at $n_{mc}=1$ and decay toward KL as the budget grows.")
+    with st.expander("What is n_mc here, and why does it apply to off-policy too?"):
+        st.markdown(r"""
+**on/off-policy = the behaviour policy that *collected the data***, not whether rollouts happen:
+- **on-policy**: preference pairs are rolled out from each $\Omega$'s own $\pi^*_\Omega$.
+- **off-policy**: preference pairs are rolled out from $\pi_{\mathrm{ref}}$ (uniform). *(Rollouts still happen — just from $\pi_{\mathrm{ref}}$.)*
+
+**$n_{mc}$ is a separate, training-time quantity:** to evaluate the non-KL implicit reward at a
+logged transition $(s,a,s')$, you must estimate the inner term
+$C_\Omega(\pi_\theta(\cdot|s'))=\mathbb{E}_{a'\sim\pi_\theta(\cdot|s')}[\,\cdot\,]$ by drawing
+$n_{mc}$ next-state actions $a'\sim\pi_\theta(\cdot|s')$ **at each logged $s'$**. This extra sampling
+is needed in **both** regimes — it is exactly the obstruction the paper identifies. KL avoids it
+($C_{\mathrm{KL}}\equiv 1$, no $a'$ sample), so KL is flat in $n_{mc}$ while non-KL improve as $n_{mc}$ grows.
+""")
     cc1, cc2 = st.columns(2)
     nmc_max = cc1.select_slider("n_mc max (2^k)", [4, 8, 16], value=16)
     n_mdp = cc2.slider("MDP draws to average", 1, 3, 1)
@@ -249,7 +273,7 @@ with t3:
             ax.set_xscale("log", base=2); ax.set_xticks(nmc_list); ax.set_xticklabels(nmc_list, fontsize=8)
             ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2)
         axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[1].legend(fontsize=7, ncol=2)
-        fig.tight_layout(); st.pyplot(fig)
+        fig.tight_layout(); show(fig)
     else:
         st.info("Set n_mc max / MDP draws, then click **Run n_mc sweep**.")
 
@@ -290,10 +314,11 @@ with t4:
             fig.suptitle(f"{regime}-policy · x = (layer, state, action) · n_mc={nmc_one} · peak={peak}", y=1.0)
             fig.tight_layout(); figs[regime] = (fig, label)
         pb.empty()
-        for regime, _ in regimes:
+        cols = st.columns(2)   # on | off side by side (2 per row); click an image to enlarge
+        for (regime, _), col in zip(regimes, cols):
             fig, label = figs[regime]
-            st.markdown(f"**{label}**")
-            st.pyplot(fig)
+            col.markdown(f"**{label}**")
+            show(fig, col)
     else:
         st.info("Pick n_mc, then click **Train & compare (on + off)**.")
 
@@ -318,4 +343,4 @@ with t5:
     ax.set_ylabel(r"$\pi^*(a|s)$, fixed $\alpha=%.1f$" % alpha)
     ax.set_title("α-div recovers RKL (a→0), Hellinger (a=0.5), KL (a→1), χ² (a=2)")
     ax.legend(fontsize=8, ncol=2); ax.grid(alpha=0.2)
-    fig.tight_layout(); st.pyplot(fig)
+    fig.tight_layout(); show(fig)
