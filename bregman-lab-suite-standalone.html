@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bregman Lab Suite — Policy Deviation & Off-Policy Admissibility</title>
+<style>
+  :root{
+    --bg:#13101a; --panel:#1c1825; --line:#2c2738; --paper:#ece7df;
+    --dim:#9b93a8; --faint:#6a6378; --star:#e84393; --pi:#5bc8d6; --gold:#d9a441; --tang:#8d7dd6;
+    --rkl:#f0883e; --chi:#58c08a; --euc:#8d7dd6;
+    --adiv:#c455b8; --js:#6f6ae0; --hel:#5585e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--paper); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height:100vh;}
+  .math{font-family:Georgia,'Iowan Old Style','Times New Roman',serif; font-style:italic;}
+  .mono{font-family:ui-monospace,'SF Mono',Menlo,monospace;}
+  #app{display:flex; min-height:100vh;}
+  /* sidebar */
+  #side{width:198px; flex:0 0 198px; background:#161221; border-right:1px solid var(--line); padding:22px 12px; position:sticky; top:0; height:100vh;}
+  #side .brand{font-size:10px; letter-spacing:2.2px; color:var(--faint); margin-bottom:18px; line-height:1.5;}
+  .navbtn{display:block; width:100%; text-align:left; padding:11px 12px; margin-bottom:6px; border-radius:10px;
+    border:1px solid transparent; background:transparent; color:var(--dim); font-size:12.8px; cursor:pointer; line-height:1.45;}
+  .navbtn small{display:block; font-size:10px; color:var(--faint);}
+  .navbtn.active{background:#2e2540; color:var(--paper); border-color:var(--line);}
+  .navbtn.active small{color:var(--dim);}
+  #content{flex:1; padding:24px 18px 60px; max-width:680px;}
+  section.task{display:none;}
+  section.task.show{display:block;}
+  .eyebrow{font-size:10.5px; letter-spacing:2.4px; color:var(--faint); margin-bottom:8px;}
+  .headline{font-size:18px; line-height:1.5; margin-bottom:6px;}
+  .sub{font-size:12.5px; color:var(--dim); margin-bottom:16px; line-height:1.65;}
+  .seg{display:flex; flex-wrap:wrap; gap:4px; background:var(--panel); padding:4px; border-radius:10px; border:1px solid var(--line); margin-bottom:10px;}
+  .seg button{flex:1 1 21%; padding:7px 3px; border-radius:7px; border:none; cursor:pointer; font-size:11.5px; background:transparent; color:var(--dim);}
+  .seg button.on{background:#2e2540; color:var(--paper); font-weight:600;}
+  .row{display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap;}
+  .sl{flex:1; min-width:100px;}
+  .sl .lab{display:flex; justify-content:space-between; font-size:11.5px; color:var(--dim); margin-bottom:3px;}
+  .sl input{width:100%; height:22px;}
+  .btnrow{display:flex; gap:8px; margin:10px 0 12px;}
+  .btn{flex:1; padding:10px 2px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--paper); font-size:12.5px; cursor:pointer;}
+  .btn.accent{border-color:#d9a44188; background:#2a2113; color:var(--gold);}
+  .btn:disabled{color:var(--faint); opacity:.55; cursor:default;}
+  .card{background:linear-gradient(180deg,#201a2c,#181420); border:1px solid #3a3050; border-radius:14px; padding:12px 14px; margin-bottom:12px;}
+  .mini{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 10px;}
+  .cap{font-size:12.5px; line-height:1.7; color:var(--dim); margin:14px 2px 0;}
+  .paper{margin-top:6px;}
+  .paper h3{font-size:14px; font-weight:600; color:var(--paper); margin:22px 0 8px; letter-spacing:0.2px;}
+  .paper p{font-size:13px; line-height:1.78; color:#cfc9da; margin:0 0 12px;}
+  .paper .m{font-family:Georgia,'Times New Roman',serif; font-style:italic;}
+  .paper .repro{font-size:11.5px; color:var(--dim); border-top:1px solid var(--line); padding-top:12px; margin-top:18px; line-height:1.7;}
+  .tbl-wrap{margin:6px 0 16px; overflow-x:auto;}
+  .tbl-cap{font-size:11px; color:var(--faint); margin-bottom:6px; line-height:1.6;}
+  .tbl{border-collapse:collapse; width:100%; font-size:11.5px;}
+  .tbl th,.tbl td{border:1px solid var(--line); padding:6px 8px; text-align:center;}
+  .tbl th{background:#221c30; color:var(--dim); font-weight:600; font-size:10.5px;}
+  .tbl td{color:var(--paper); font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:11px;}
+  .tbl td.rh{background:#1c1825; color:var(--dim); font-family:Georgia,serif; font-style:italic;}
+  .tbl tr td:first-child{font-weight:600;}
+  .figure{margin:16px 0 18px;}
+  .figure .fig-svg{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:8px;}
+  .figure .fig-cap{font-size:11px; color:var(--dim); line-height:1.65; margin-top:8px; padding:0 2px;}
+  .figure .fig-cap b{color:var(--paper);}
+  .warn{background:#2a1a13; border:1px solid #d9a44166; border-radius:12px; padding:9px 12px; margin-bottom:10px; font-size:11.5px; color:var(--gold); line-height:1.55;}
+  svg{display:block;}
+  canvas{display:block;}
+  .panelbox{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+  .progress{height:8px; background:#262130; border-radius:5px; overflow:hidden; margin:8px 0;}
+  .progress > div{height:100%; width:0%; background:linear-gradient(90deg,var(--star),#ff7fb8); transition:width .15s;}
+  @media (max-width:760px){
+    #app{flex-direction:column;}
+    #side{width:100%; height:auto; position:static; display:flex; gap:6px; padding:10px; border-right:none; border-bottom:1px solid var(--line);}
+    #side .brand{display:none;}
+    .navbtn{margin-bottom:0; padding:9px 8px; font-size:11.5px;}
+    .navbtn small{display:none;}
+    #content{padding:18px 12px 50px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="side">
+    <div class="brand">BREGMAN LAB SUITE<br/>policy deviation · duality · admissibility</div>
+    <button class="navbtn active" data-task="t0">⓪ Experiments<small>write-up · results</small></button>
+    <button class="navbtn" data-task="t1">① Dual Manifold<small>Ω(π) ↔ Ω*(q) · 3D</small></button>
+    <button class="navbtn" data-task="t2">② Theorem Live<small>LHS (DP) vs RHS (MC)</small></button>
+    <button class="navbtn" data-task="t3">③ Admissibility<small>DPO training · 7 divergences</small></button>
+  </nav>
+  <main id="content">
+
+  <!-- ════════ TASK 0 · EXPERIMENTS WRITE-UP ════════ -->
+  <section class="task show" id="t0">
+    <div class="eyebrow">EXPERIMENTS · WRITE-UP</div>
+    <div class="headline" style="font-weight:600">The Off-Policy Admissibility of KL Divergence: An Empirical Study</div>
+    <div class="sub">This section reports a controlled study, run inside the <b>③ Admissibility</b> lab, isolating the single property that distinguishes KL divergence among general strictly-convex policy regularizers: its implicit-reward inner term is independent of the policy, and therefore requires no estimation from action samples. All numbers below were produced by the same tabular trajectory-DPO learner used in the interactive panel.</div>
+
+    <div class="paper">
+      <h3>1. Setup</h3>
+      <p>We study a layered Markov decision process with <span class="m">L</span> decision layers, three states per layer, and three actions. Taking action <span class="m">a<sub>i</sub></span> moves to the next-layer state <span class="m">s<sub>i</sub></span> with probability <span class="m">1−ε</span> and spreads uniformly over the remaining states otherwise; we use <span class="m">ε = 0.2</span> throughout. Rewards are drawn once per instance and held fixed. For each regularizer <span class="m">Ω</span> we obtain its regularized-optimal policy <span class="m">π<sub>Ω</sub><sup>★</sup></span> in closed form by backward induction, using the exact stationarity solver for each divergence (softmax for KL, a one-dimensional bisection on the inverse of <span class="m">∇Ω</span> for the remaining smooth divergences, and Euclidean projection for χ² and squared Euclidean).</p>
+
+      <p>To make the seven regularizers comparable rather than confounded by the scale of <span class="m">Ω</span>, we <b>calibrate the regularization weight <span class="m">α</span> per divergence</b> so that every <span class="m">π<sub>Ω</sub><sup>★</sup></span> attains the same <i>peakedness</i> — the mean over states of its largest action probability. Fixing a target peak of <span class="m">0.6</span> and solving for <span class="m">α</span> by bisection yields the values in Table 1; the calibration is exact to numerical tolerance and can be reproduced live in the <b>α–peak sweep</b> panel.</p>
+
+      <div class="tbl-wrap">
+        <div class="tbl-cap">Table 1. Calibrated regularization weight α per divergence (target peak 0.6).</div>
+        <table class="tbl">
+          <tr><th>KL</th><th>α-div (1.5)</th><th>Reverse KL</th><th>JS</th><th>sq. Hellinger</th><th>χ²</th><th>sq. Euclidean</th></tr>
+          <tr><td>0.517</td><td>0.534</td><td>0.454</td><td>1.010</td><td>0.980</td><td>0.267</td><td>1.604</td></tr>
+        </table>
+      </div>
+
+      <div class="figure"><div class="fig-svg"><svg viewBox="0 0 540 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#1c1825;border-radius:10px"><line x1="44.0" y1="254.0" x2="528.0" y2="254.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="257.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.0</text><line x1="44.0" y1="206.0" x2="528.0" y2="206.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="209.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.2</text><line x1="44.0" y1="158.0" x2="528.0" y2="158.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="161.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.4</text><line x1="44.0" y1="110.0" x2="528.0" y2="110.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="113.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.6</text><line x1="44.0" y1="62.0" x2="528.0" y2="62.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="65.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.8</text><line x1="44.0" y1="14.0" x2="528.0" y2="14.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="17.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">1.0</text><line x1="114.1" y1="14.0" x2="114.1" y2="254.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="114.1" y="267.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">10^-1</text><line x1="346.9" y1="14.0" x2="346.9" y2="254.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="346.9" y="267.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">10^0</text><line x1="44.0" y1="110.0" x2="528.0" y2="110.0" stroke="#9b93a8" stroke-width="1.2" stroke-dasharray="6 4" opacity="1"/><text x="526.0" y="106.0" fill="#9b93a8" font-size="9.5" text-anchor="end" style="font-family:sans-serif; font-style:italic; font-family:Georgia,serif;">target peak = 0.60</text><polyline points="44.0,27.3 56.1,29.4 68.2,31.7 80.3,34.2 92.4,36.8 104.5,39.6 116.6,42.5 128.7,45.7 140.8,49.1 152.9,52.8 165.0,56.8 177.1,61.1 189.2,65.9 201.3,71.0 213.4,76.4 225.5,82.2 237.6,88.2 249.7,94.4 261.8,100.7 273.9,106.8 286.0,112.9 298.1,118.6 310.2,124.1 322.3,129.3 334.4,134.0 346.5,138.3 358.6,142.3 370.7,145.8 382.8,149.0 394.9,151.8 407.0,154.4 419.1,156.6 431.2,158.6 443.3,160.4 455.4,162.0 467.5,163.3 479.6,164.6 491.7,165.6 503.8,166.6 515.9,167.4 528.0,168.2" fill="none" stroke="#e84393" stroke-width="2.4"/><line x1="280.2" y1="14.0" x2="280.2" y2="254.0" stroke="#e84393" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="280.2" cy="110.0" r="3" fill="#e84393" opacity="1"/><polyline points="44.0,27.1 56.1,29.3 68.2,31.8 80.3,34.5 92.4,37.3 104.5,40.0 116.6,42.8 128.7,45.7 140.8,48.6 152.9,51.6 165.0,54.8 177.1,58.5 189.2,62.6 201.3,67.7 213.4,73.7 225.5,79.8 237.6,85.7 249.7,91.7 261.8,97.9 273.9,104.7 286.0,111.5 298.1,117.9 310.2,123.9 322.3,129.3 334.4,134.3 346.5,138.7 358.6,142.7 370.7,146.2 382.8,149.4 394.9,152.2 407.0,154.7 419.1,156.9 431.2,158.8 443.3,160.6 455.4,162.1 467.5,163.5 479.6,164.7 491.7,165.7 503.8,166.7 515.9,167.5 528.0,168.2" fill="none" stroke="#c455b8" stroke-width="1.4"/><line x1="283.4" y1="14.0" x2="283.4" y2="254.0" stroke="#c455b8" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="283.4" cy="110.0" r="3" fill="#c455b8" opacity="1"/><polyline points="44.0,39.5 56.1,42.1 68.2,44.8 80.3,47.8 92.4,50.9 104.5,54.1 116.6,57.5 128.7,61.1 140.8,64.7 152.9,68.6 165.0,72.5 177.1,76.6 189.2,80.8 201.3,85.1 213.4,89.5 225.5,94.1 237.6,98.6 249.7,103.3 261.8,108.0 273.9,112.7 286.0,117.4 298.1,122.0 310.2,126.4 322.3,130.7 334.4,134.8 346.5,138.7 358.6,142.3 370.7,145.6 382.8,148.7 394.9,151.4 407.0,154.0 419.1,156.2 431.2,158.3 443.3,160.1 455.4,161.7 467.5,163.1 479.6,164.4 491.7,165.5 503.8,166.5 515.9,167.3 528.0,168.1" fill="none" stroke="#9b59d0" stroke-width="1.4"/><line x1="266.9" y1="14.0" x2="266.9" y2="254.0" stroke="#9b59d0" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="266.9" cy="110.0" r="3" fill="#9b59d0" opacity="1"/><polyline points="44.0,19.4 56.1,20.5 68.2,21.7 80.3,23.1 92.4,24.7 104.5,26.5 116.6,28.5 128.7,30.6 140.8,33.0 152.9,35.6 165.0,38.4 177.1,41.5 189.2,44.8 201.3,48.4 213.4,52.3 225.5,56.4 237.6,60.8 249.7,65.5 261.8,70.4 273.9,75.6 286.0,81.0 298.1,86.5 310.2,92.2 322.3,97.9 334.4,103.7 346.5,109.4 358.6,114.9 370.7,120.3 382.8,125.4 394.9,130.2 407.0,134.7 419.1,138.8 431.2,142.7 443.3,146.1 455.4,149.2 467.5,152.1 479.6,154.6 491.7,156.8 503.8,158.8 515.9,160.5 528.0,162.1" fill="none" stroke="#6f6ae0" stroke-width="1.4"/><line x1="347.9" y1="14.0" x2="347.9" y2="254.0" stroke="#6f6ae0" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="347.9" cy="110.0" r="3" fill="#6f6ae0" opacity="1"/><polyline points="44.0,21.3 56.1,22.6 68.2,24.1 80.3,25.7 92.4,27.5 104.5,29.5 116.6,31.7 128.7,34.2 140.8,36.8 152.9,39.6 165.0,42.6 177.1,45.9 189.2,49.3 201.3,53.0 213.4,56.8 225.5,60.9 237.6,65.1 249.7,69.6 261.8,74.2 273.9,79.1 286.0,84.1 298.1,89.3 310.2,94.6 322.3,99.9 334.4,105.4 346.5,110.7 358.6,116.0 370.7,121.2 382.8,126.1 394.9,130.7 407.0,135.1 419.1,139.2 431.2,142.9 443.3,146.3 455.4,149.4 467.5,152.1 479.6,154.6 491.7,156.8 503.8,158.8 515.9,160.6 528.0,162.1" fill="none" stroke="#5585e0" stroke-width="1.4"/><line x1="344.8" y1="14.0" x2="344.8" y2="254.0" stroke="#5585e0" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="344.8" cy="110.0" r="3" fill="#5585e0" opacity="1"/><polyline points="44.0,45.0 56.1,48.2 68.2,51.3 80.3,54.0 92.4,56.9 104.5,60.4 116.6,64.3 128.7,69.1 140.8,75.1 152.9,81.4 165.0,87.5 177.1,93.4 189.2,98.7 201.3,103.8 213.4,110.0 225.5,116.6 237.6,123.1 249.7,128.9 261.8,134.0 273.9,138.6 286.0,142.6 298.1,146.1 310.2,149.3 322.3,152.1 334.4,154.6 346.5,156.8 358.6,158.7 370.7,160.4 382.8,162.0 394.9,163.3 407.0,164.5 419.1,165.6 431.2,166.5 443.3,167.4 455.4,168.1 467.5,168.8 479.6,169.4 491.7,169.9 503.8,170.4 515.9,170.8 528.0,171.1" fill="none" stroke="#4fa8d8" stroke-width="1.4"/><line x1="213.5" y1="14.0" x2="213.5" y2="254.0" stroke="#4fa8d8" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="213.5" cy="110.0" r="3" fill="#4fa8d8" opacity="1"/><polyline points="44.0,15.7 56.1,16.6 68.2,17.5 80.3,18.2 92.4,19.8 104.5,21.4 116.6,22.8 128.7,24.4 140.8,26.7 152.9,28.7 165.0,30.9 177.1,33.6 189.2,36.6 201.3,39.8 213.4,42.6 225.5,45.1 237.6,48.3 249.7,51.3 261.8,54.0 273.9,57.0 286.0,60.5 298.1,64.5 310.2,69.3 322.3,75.3 334.4,81.6 346.5,87.7 358.6,93.6 370.7,98.8 382.8,104.0 394.9,110.2 407.0,116.8 419.1,123.3 431.2,129.1 443.3,134.2 455.4,138.7 467.5,142.7 479.6,146.2 491.7,149.4 503.8,152.2 515.9,154.6 528.0,156.8" fill="none" stroke="#5bc8d6" stroke-width="1.4"/><line x1="394.6" y1="14.0" x2="394.6" y2="254.0" stroke="#5bc8d6" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/><circle cx="394.6" cy="110.0" r="3" fill="#5bc8d6" opacity="1"/><text x="286.0" y="294.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif; font-style:italic; font-family:Georgia,serif;">regularization weight α</text><line x1="50.0" y1="20.0" x2="66.0" y2="20.0" stroke="#e84393" stroke-width="2.4" opacity="1"/><text x="70.0" y="23.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">KL</text><line x1="168.0" y1="20.0" x2="184.0" y2="20.0" stroke="#c455b8" stroke-width="1.4" opacity="1"/><text x="188.0" y="23.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">α-div</text><line x1="286.0" y1="20.0" x2="302.0" y2="20.0" stroke="#9b59d0" stroke-width="1.4" opacity="1"/><text x="306.0" y="23.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">Rev. KL</text><line x1="404.0" y1="20.0" x2="420.0" y2="20.0" stroke="#6f6ae0" stroke-width="1.4" opacity="1"/><text x="424.0" y="23.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">JS</text><line x1="50.0" y1="34.0" x2="66.0" y2="34.0" stroke="#5585e0" stroke-width="1.4" opacity="1"/><text x="70.0" y="37.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">Hellinger</text><line x1="168.0" y1="34.0" x2="184.0" y2="34.0" stroke="#4fa8d8" stroke-width="1.4" opacity="1"/><text x="188.0" y="37.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">χ²</text><line x1="286.0" y1="34.0" x2="302.0" y2="34.0" stroke="#5bc8d6" stroke-width="1.4" opacity="1"/><text x="306.0" y="37.5" fill="#9b93a8" font-size="9" text-anchor="start" style="font-family:sans-serif;">Euclid.</text></svg></div><div class="fig-cap"><b>Figure 1.</b> Peakedness of the optimal policy π<sub>Ω</sub><sup>★</sup> as a function of the regularization weight α, for all seven divergences (log-scaled α). The dashed line marks the common target peak; the colored verticals mark each divergence’s calibrated α, i.e. where its curve crosses the target. Calibration removes the scale of Ω as a confound.</div></div>
+      <p>Preference data are generated <b>off-policy</b>: trajectory pairs are rolled out under a uniform behavior policy, and a Bradley–Terry label is sampled from the difference of their discounted returns. A single dataset of <span class="m">N = 4000</span> pairs is shared verbatim by all seven learners, so the only quantity that can differ across divergences is the treatment of the implicit-reward inner term inside the learner.</p>
+
+      <h3>2. The inner term and its estimation</h3>
+      <p>Writing the regularized optimal action-value through the Legendre map gives an implicit reward of the form <span class="m">r̂(s,a) = α[∇Ω(π<sub>θ</sub>)(a) − ∇Ω(π<sub>ref</sub>)(a)] + α C<sub>Ω</sub>(s′)</span>, where the inner term <span class="m">C<sub>Ω</sub>(s′) = 𝔼<sub>a′∼π(·|s′)</sub>[Φ]</span> is an expectation over next-state actions. For KL this term is a state-independent constant and cancels in every preference comparison; for any other regularizer it depends on the policy and must be estimated from <span class="m">n<sub>mc</sub></span> sampled actions. Table 2 quantifies this at the calibrated optima: KL has exactly zero across-state variation and zero single-sample estimator noise, whereas every other divergence carries both.</p>
+
+      <div class="tbl-wrap">
+        <div class="tbl-cap">Table 2. Inner-term statistics at the calibrated π<sub>Ω</sub><sup>★</sup>. <span class="m">std<sub>s</sub>[C]</span> measures how far C<sub>Ω</sub> is from constant across states; <span class="m">σ<sub>1</sub></span> is the standard deviation of a single-action estimate of C<sub>Ω</sub>.</div>
+        <table class="tbl">
+          <tr><th></th><th>KL</th><th>α-div</th><th>Rev. KL</th><th>JS</th><th>Hellinger</th><th>χ²</th><th>Euclid.</th></tr>
+          <tr><td class="rh">std<sub>s</sub>[C]</td><td>0.000</td><td>0.070</td><td>0.110</td><td>0.028</td><td>0.030</td><td>0.283</td><td>0.047</td></tr>
+          <tr><td class="rh">σ<sub>1</sub></td><td>0.000</td><td>1.61</td><td>1.53</td><td>0.41</td><td>0.42</td><td>5.3·10³</td><td>0.14</td></tr>
+        </table>
+      </div>
+
+      <p>KL is the only row that is identically zero on both measures. The χ² estimator variance is several orders of magnitude larger than the rest, a direct consequence of its integrand diverging as the policy approaches the simplex boundary; this foreshadows χ² being among the least stable learners below.</p>
+
+      <h3>3. The admissibility gap</h3>
+      <p>We train each divergence with tabular trajectory-DPO (Adam, learning rate 0.08, 300 steps, minibatch 16), estimating <span class="m">C<sub>Ω</sub></span> with <span class="m">n<sub>mc</sub></span> on-policy samples and differentiating through the estimator exactly. Performance is the mean total-variation distance between the trained policy and that divergence's <i>own</i> optimum, averaged over states, so each method is scored against its own target on a common ruler. We report mean ± standard deviation over eight seeds.</p>
+
+      <div class="tbl-wrap">
+        <div class="tbl-cap">Table 3. Final policy gap (mean TV to π<sub>Ω</sub><sup>★</sup>, ×10⁻¹) as a function of inner-term samples n<sub>mc</sub>. Lower is better; bold marks the best column entry.</div>
+        <table class="tbl">
+          <tr><th>n<sub>mc</sub></th><th>KL</th><th>α-div</th><th>Rev. KL</th><th>JS</th><th>Hellinger</th><th>χ²</th><th>Euclid.</th></tr>
+          <tr><td class="rh">1</td><td><b>1.06</b>±.15</td><td>1.90±.24</td><td>2.09±.16</td><td>1.83±.15</td><td>1.74±.21</td><td>1.97±.14</td><td>1.82±.25</td></tr>
+          <tr><td class="rh">4</td><td><b>1.02</b>±.16</td><td>1.36±.23</td><td>1.82±.11</td><td>1.44±.12</td><td>1.23±.22</td><td>1.64±.16</td><td>1.40±.18</td></tr>
+          <tr><td class="rh">16</td><td><b>1.00</b>±.12</td><td>1.21±.19</td><td>1.45±.13</td><td>1.29±.19</td><td>1.23±.17</td><td>1.41±.28</td><td>1.25±.14</td></tr>
+        </table>
+      </div>
+
+      <div class="figure"><div class="fig-svg"><svg viewBox="0 0 540 230" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#1c1825;border-radius:10px"><line x1="40.0" y1="196.0" x2="528.0" y2="196.0" stroke="#2c2738" stroke-width="1" opacity="1"/><line x1="40.0" y1="160.2" x2="528.0" y2="160.2" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="163.2" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.05</text><line x1="40.0" y1="124.3" x2="528.0" y2="124.3" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="127.3" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.10</text><line x1="40.0" y1="88.5" x2="528.0" y2="88.5" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="91.5" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.15</text><line x1="40.0" y1="52.6" x2="528.0" y2="52.6" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="55.6" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.20</text><rect x="52.0" y="120.2" width="17.1" height="75.8" fill="#e84393" opacity="0.88" rx="2.5"/><line x1="60.5" y1="130.6" x2="60.5" y2="109.8" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="58.0" y1="109.8" x2="63.0" y2="109.8" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="58.0" y1="130.6" x2="63.0" y2="130.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="72.1" y="60.2" width="17.1" height="135.8" fill="#c455b8" opacity="0.88" rx="2.5"/><line x1="80.6" y1="77.4" x2="80.6" y2="42.9" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="78.1" y1="42.9" x2="83.1" y2="42.9" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="78.1" y1="77.4" x2="83.1" y2="77.4" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="92.2" y="46.5" width="17.1" height="149.5" fill="#9b59d0" opacity="0.88" rx="2.5"/><line x1="100.7" y1="57.6" x2="100.7" y2="35.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="98.2" y1="35.3" x2="103.2" y2="35.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="98.2" y1="57.6" x2="103.2" y2="57.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="112.3" y="65.0" width="17.1" height="131.0" fill="#6f6ae0" opacity="0.88" rx="2.5"/><line x1="120.8" y1="75.9" x2="120.8" y2="54.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="118.3" y1="54.2" x2="123.3" y2="54.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="118.3" y1="75.9" x2="123.3" y2="75.9" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="132.4" y="71.4" width="17.1" height="124.6" fill="#5585e0" opacity="0.88" rx="2.5"/><line x1="140.9" y1="86.7" x2="140.9" y2="56.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="138.4" y1="56.1" x2="143.4" y2="56.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="138.4" y1="86.7" x2="143.4" y2="86.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="152.5" y="54.7" width="17.1" height="141.3" fill="#4fa8d8" opacity="0.88" rx="2.5"/><line x1="161.0" y1="64.7" x2="161.0" y2="44.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="158.5" y1="44.7" x2="163.5" y2="44.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="158.5" y1="64.7" x2="163.5" y2="64.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="172.6" y="65.5" width="17.1" height="130.5" fill="#5bc8d6" opacity="0.88" rx="2.5"/><line x1="181.1" y1="83.1" x2="181.1" y2="48.0" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="178.6" y1="48.0" x2="183.6" y2="48.0" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="178.6" y1="83.1" x2="183.6" y2="83.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><text x="121.3" y="218.0" fill="#9b93a8" font-size="10.5" text-anchor="middle" style="font-family:sans-serif;">n_mc = 1</text><rect x="214.7" y="122.9" width="17.1" height="73.1" fill="#e84393" opacity="0.88" rx="2.5"/><line x1="223.2" y1="134.7" x2="223.2" y2="111.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="220.7" y1="111.2" x2="225.7" y2="111.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="220.7" y1="134.7" x2="225.7" y2="134.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="234.8" y="98.8" width="17.1" height="97.2" fill="#c455b8" opacity="0.88" rx="2.5"/><line x1="243.3" y1="115.0" x2="243.3" y2="82.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="240.8" y1="82.6" x2="245.8" y2="82.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="240.8" y1="115.0" x2="245.8" y2="115.0" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="254.9" y="65.3" width="17.1" height="130.7" fill="#9b59d0" opacity="0.88" rx="2.5"/><line x1="263.4" y1="73.5" x2="263.4" y2="57.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="260.9" y1="57.2" x2="265.9" y2="57.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="260.9" y1="73.5" x2="265.9" y2="73.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="275.0" y="93.1" width="17.1" height="102.9" fill="#6f6ae0" opacity="0.88" rx="2.5"/><line x1="283.5" y1="101.7" x2="283.5" y2="84.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="281.0" y1="84.5" x2="286.0" y2="84.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="281.0" y1="101.7" x2="286.0" y2="101.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="295.0" y="107.6" width="17.1" height="88.4" fill="#5585e0" opacity="0.88" rx="2.5"/><line x1="303.6" y1="123.1" x2="303.6" y2="92.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="301.1" y1="92.1" x2="306.1" y2="92.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="301.1" y1="123.1" x2="306.1" y2="123.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="315.1" y="78.7" width="17.1" height="117.3" fill="#4fa8d8" opacity="0.88" rx="2.5"/><line x1="323.7" y1="90.1" x2="323.7" y2="67.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="321.2" y1="67.3" x2="326.2" y2="67.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="321.2" y1="90.1" x2="326.2" y2="90.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="335.2" y="95.8" width="17.1" height="100.2" fill="#5bc8d6" opacity="0.88" rx="2.5"/><line x1="343.8" y1="108.8" x2="343.8" y2="82.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="341.3" y1="82.7" x2="346.3" y2="82.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="341.3" y1="108.8" x2="346.3" y2="108.8" stroke="#ece7df" stroke-width="1" opacity="0.8"/><text x="284.0" y="218.0" fill="#9b93a8" font-size="10.5" text-anchor="middle" style="font-family:sans-serif;">n_mc = 4</text><rect x="377.3" y="124.5" width="17.1" height="71.5" fill="#e84393" opacity="0.88" rx="2.5"/><line x1="385.9" y1="133.4" x2="385.9" y2="115.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="383.4" y1="115.6" x2="388.4" y2="115.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="383.4" y1="133.4" x2="388.4" y2="133.4" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="397.4" y="109.4" width="17.1" height="86.6" fill="#c455b8" opacity="0.88" rx="2.5"/><line x1="406.0" y1="123.2" x2="406.0" y2="95.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="403.5" y1="95.5" x2="408.5" y2="95.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="403.5" y1="123.2" x2="408.5" y2="123.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="417.5" y="92.4" width="17.1" height="103.6" fill="#9b59d0" opacity="0.88" rx="2.5"/><line x1="426.1" y1="101.5" x2="426.1" y2="83.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="423.6" y1="83.3" x2="428.6" y2="83.3" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="423.6" y1="101.5" x2="428.6" y2="101.5" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="437.6" y="103.4" width="17.1" height="92.6" fill="#6f6ae0" opacity="0.88" rx="2.5"/><line x1="446.2" y1="117.2" x2="446.2" y2="89.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="443.7" y1="89.7" x2="448.7" y2="89.7" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="443.7" y1="117.2" x2="448.7" y2="117.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="457.7" y="108.1" width="17.1" height="87.9" fill="#5585e0" opacity="0.88" rx="2.5"/><line x1="466.3" y1="120.1" x2="466.3" y2="96.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="463.8" y1="96.1" x2="468.8" y2="96.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="463.8" y1="120.1" x2="468.8" y2="120.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="477.8" y="95.2" width="17.1" height="100.8" fill="#4fa8d8" opacity="0.88" rx="2.5"/><line x1="486.4" y1="115.1" x2="486.4" y2="75.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="483.9" y1="75.2" x2="488.9" y2="75.2" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="483.9" y1="115.1" x2="488.9" y2="115.1" stroke="#ece7df" stroke-width="1" opacity="0.8"/><rect x="497.9" y="106.8" width="17.1" height="89.2" fill="#5bc8d6" opacity="0.88" rx="2.5"/><line x1="506.5" y1="117.0" x2="506.5" y2="96.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="504.0" y1="96.6" x2="509.0" y2="96.6" stroke="#ece7df" stroke-width="1" opacity="0.8"/><line x1="504.0" y1="117.0" x2="509.0" y2="117.0" stroke="#ece7df" stroke-width="1" opacity="0.8"/><text x="446.7" y="218.0" fill="#9b93a8" font-size="10.5" text-anchor="middle" style="font-family:sans-serif;">n_mc = 16</text><text x="10.0" y="22.0" fill="#6a6378" font-size="9" text-anchor="start" style="font-family:sans-serif;">gap</text><rect x="50.0" y="221.0" width="7.0" height="7.0" fill="#e84393" opacity="1" rx="1.5"/><text x="60.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">KL</text><rect x="122.0" y="221.0" width="7.0" height="7.0" fill="#c455b8" opacity="1" rx="1.5"/><text x="132.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">α-div</text><rect x="194.0" y="221.0" width="7.0" height="7.0" fill="#9b59d0" opacity="1" rx="1.5"/><text x="204.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">Rev. KL</text><rect x="266.0" y="221.0" width="7.0" height="7.0" fill="#6f6ae0" opacity="1" rx="1.5"/><text x="276.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">JS</text><rect x="338.0" y="221.0" width="7.0" height="7.0" fill="#5585e0" opacity="1" rx="1.5"/><text x="348.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">Hellinger</text><rect x="410.0" y="221.0" width="7.0" height="7.0" fill="#4fa8d8" opacity="1" rx="1.5"/><text x="420.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">χ²</text><rect x="482.0" y="221.0" width="7.0" height="7.0" fill="#5bc8d6" opacity="1" rx="1.5"/><text x="492.0" y="227.0" fill="#9b93a8" font-size="8.5" text-anchor="start" style="font-family:sans-serif;">Euclid.</text></svg></div><div class="fig-cap"><b>Figure 2.</b> Final policy gap (mean TV to each divergence’s own optimum, ± seed std over 8 seeds) at n<sub>mc</sub> ∈ {1, 4, 16}. KL (leftmost in each group) is lowest and essentially flat across n<sub>mc</sub>; every other divergence starts higher and decreases as more inner-term samples reduce estimator variance.</div></div>
+      <p>Three observations follow. First, at <span class="m">n<sub>mc</sub>=1</span> — the regime in which the learner has the least information about the inner expectation — KL attains a gap of <span class="m">0.106</span>, while every other divergence lands between <span class="m">0.17</span> and <span class="m">0.21</span>, a separation of four to seven standard deviations. Second, KL is essentially <b>flat in <span class="m">n<sub>mc</sub></span></b> (0.106 → 0.100 from one to sixteen samples), exactly as predicted by the constancy of its inner term, whereas every other method improves monotonically as more samples reduce estimator variance. Third, even at <span class="m">n<sub>mc</sub>=16</span> a residual ordering persists, with KL still lowest; the non-KL methods approach but do not reach it within this sample budget.</p>
+
+      <p>It is worth isolating the effect from confounds. Because the dataset, the MDP, the optimizer, and the calibration are shared, the only moving part across columns is inner-term estimation. We therefore read the <b>excess gap over KL</b> at <span class="m">n<sub>mc</sub>=1</span>, which removes the common floor due to finite data and optimization residual: α-div <span class="m">+0.084</span>, Reverse KL <span class="m">+0.103</span>, JS <span class="m">+0.077</span>, Hellinger <span class="m">+0.068</span>, χ² <span class="m">+0.092</span>, Euclidean <span class="m">+0.076</span>. The penalty tracks the estimator noise of Table 2 in rank, with Reverse KL and χ² — the divergences with the largest inner-term variance — incurring the largest excess.</p>
+
+      <div class="figure"><div class="fig-svg"><svg viewBox="0 0 540 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#1c1825;border-radius:10px"><line x1="40.0" y1="158.0" x2="528.0" y2="158.0" stroke="#2c2738" stroke-width="1" opacity="1"/><line x1="40.0" y1="134.6" x2="528.0" y2="134.6" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="137.6" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.02</text><line x1="40.0" y1="111.2" x2="528.0" y2="111.2" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="114.2" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.04</text><line x1="40.0" y1="87.8" x2="528.0" y2="87.8" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="90.8" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.06</text><line x1="40.0" y1="64.5" x2="528.0" y2="64.5" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="67.5" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.08</text><line x1="40.0" y1="41.1" x2="528.0" y2="41.1" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="35.0" y="44.1" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.10</text><rect x="53.9" y="158.0" width="41.8" height="0.0" fill="#e84393" opacity="0.9" rx="3"/><text x="74.9" y="154.0" fill="#e84393" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">0.000</text><text x="74.9" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">KL</text><rect x="123.7" y="60.0" width="41.8" height="98.0" fill="#c455b8" opacity="0.9" rx="3"/><text x="144.6" y="56.0" fill="#c455b8" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.084</text><text x="144.6" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">α-div</text><rect x="193.4" y="37.7" width="41.8" height="120.3" fill="#9b59d0" opacity="0.9" rx="3"/><text x="214.3" y="33.7" fill="#9b59d0" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.103</text><text x="214.3" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">Rev. KL</text><rect x="263.1" y="68.0" width="41.8" height="90.0" fill="#6f6ae0" opacity="0.9" rx="3"/><text x="284.0" y="64.0" fill="#6f6ae0" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.077</text><text x="284.0" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">JS</text><rect x="332.8" y="78.3" width="41.8" height="79.7" fill="#5585e0" opacity="0.9" rx="3"/><text x="353.7" y="74.3" fill="#5585e0" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.068</text><text x="353.7" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">Hellinger</text><rect x="402.5" y="51.0" width="41.8" height="107.0" fill="#4fa8d8" opacity="0.9" rx="3"/><text x="423.4" y="47.0" fill="#4fa8d8" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.091</text><text x="423.4" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">χ²</text><rect x="472.2" y="68.8" width="41.8" height="89.2" fill="#5bc8d6" opacity="0.9" rx="3"/><text x="493.1" y="64.8" fill="#5bc8d6" font-size="8.5" text-anchor="middle" style="font-family:sans-serif;">+0.076</text><text x="493.1" y="174.0" fill="#9b93a8" font-size="9" text-anchor="middle" style="font-family:sans-serif;">Euclid.</text><text x="10.0" y="22.0" fill="#6a6378" font-size="9" text-anchor="start" style="font-family:sans-serif;">Δ vs KL</text><text x="284.0" y="192.0" fill="#9b93a8" font-size="9.5" text-anchor="middle" style="font-family:sans-serif;">excess gap over KL  (n_mc = 1, lower KL = 0 baseline)</text></svg></div><div class="fig-cap"><b>Figure 3.</b> Excess gap over KL at n<sub>mc</sub> = 1, removing the common floor from finite data and optimization. KL is the zero baseline by construction; the non-KL penalty tracks the inner-term estimator variance of Table 2 in rank, with Reverse KL and χ² largest.</div></div>
+
+      <h3>4. The penalty accumulates along trajectories</h3>
+      <p>If the gap originates in the inner term, which appears once per transition, it should grow with trajectory length. Holding all else fixed and sweeping the horizon <span class="m">L</span>, we find the mean excess gap over KL (averaged across the six non-KL divergences, <span class="m">n<sub>mc</sub>=1</span>) increases from <span class="m">0.031</span> at <span class="m">L=3</span> to <span class="m">0.056</span> at <span class="m">L=4</span> and <span class="m">0.095</span> at <span class="m">L=5</span>, while KL's own gap stays near <span class="m">0.10</span> throughout. Longer horizons accumulate more inner-term estimation error for the non-KL methods, sharpening KL's advantage; KL is unaffected because there is no error to accumulate.</p>
+
+      <div class="figure"><div class="fig-svg"><svg viewBox="0 0 540 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#1c1825;border-radius:10px"><line x1="44.0" y1="180.0" x2="526.0" y2="180.0" stroke="#2c2738" stroke-width="1" opacity="1"/><line x1="44.0" y1="145.2" x2="526.0" y2="145.2" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="148.2" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.03</text><line x1="44.0" y1="110.4" x2="526.0" y2="110.4" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="113.4" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.06</text><line x1="44.0" y1="75.7" x2="526.0" y2="75.7" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="78.7" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.09</text><line x1="44.0" y1="40.9" x2="526.0" y2="40.9" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="39.0" y="43.9" fill="#6a6378" font-size="8" text-anchor="end" style="font-family:sans-serif;">0.12</text><polyline points="44.0,43.3 204.7,67.2 365.3,59.8 526.0,49.9" fill="none" stroke="#e84393" stroke-width="2.4"/><circle cx="44.0" cy="43.3" r="3.2" fill="#e84393" opacity="1"/><circle cx="204.7" cy="67.2" r="3.2" fill="#e84393" opacity="1"/><circle cx="365.3" cy="59.8" r="3.2" fill="#e84393" opacity="1"/><circle cx="526.0" cy="49.9" r="3.2" fill="#e84393" opacity="1"/><polyline points="44.0,144.2 204.7,115.2 365.3,69.4 526.0,82.9" fill="none" stroke="#5585e0" stroke-width="2.4"/><circle cx="44.0" cy="144.2" r="3.2" fill="#5585e0" opacity="1"/><circle cx="204.7" cy="115.2" r="3.2" fill="#5585e0" opacity="1"/><circle cx="365.3" cy="69.4" r="3.2" fill="#5585e0" opacity="1"/><circle cx="526.0" cy="82.9" r="3.2" fill="#5585e0" opacity="1"/><text x="44.0" y="198.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif;">L = 3</text><text x="204.7" y="198.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif;">L = 4</text><text x="365.3" y="198.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif;">L = 5</text><text x="526.0" y="198.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif;">L = 6</text><text x="285.0" y="214.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif; font-style:italic; font-family:Georgia,serif;">trajectory depth L</text><line x1="50.0" y1="20.0" x2="66.0" y2="20.0" stroke="#e84393" stroke-width="2.4" opacity="1"/><text x="70.0" y="23.0" fill="#9b93a8" font-size="9.5" text-anchor="start" style="font-family:sans-serif;">KL gap</text><line x1="164.0" y1="20.0" x2="180.0" y2="20.0" stroke="#5585e0" stroke-width="2.4" opacity="1"/><text x="184.0" y="23.0" fill="#9b93a8" font-size="9.5" text-anchor="start" style="font-family:sans-serif;">mean non-KL excess over KL</text></svg></div><div class="fig-cap"><b>Figure 4.</b> Effect of trajectory depth L. KL’s own gap (pink) stays near 0.10 across depths, while the mean excess of the non-KL divergences over KL (blue) grows with L, consistent with the inner-term error being incurred once per transition and accumulating along the trajectory.</div></div>
+
+      <h3>5. The extreme off-policy regime</h3>
+      <p>The on-policy estimator above still resamples fresh actions from the current policy at each visited next state. A strictly off-policy learner has no such luxury: the dataset records exactly one action at each state, and no further environment queries are available. Evaluating the inner term at the single data-recorded action — the most faithful rendering of the off-policy constraint — replaces estimation variance with estimation <i>bias</i>, since the behavior policy is not the target policy. Under this protocol KL is unchanged at <span class="m">0.106±0.016</span>, identical to its on-policy value, while the non-KL divergences remain elevated at <span class="m">0.16</span>–<span class="m">0.20</span>. KL is the only divergence whose performance is invariant to the inner-term protocol, because it never evaluates the inner term at all.</p>
+
+      <div class="figure"><div class="fig-svg"><svg viewBox="0 0 540 240" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#1c1825;border-radius:10px"><line x1="46.0" y1="194.0" x2="526.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="41.0" y="197.0" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.0</text><line x1="46.0" y1="154.9" x2="526.0" y2="154.9" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="41.0" y="157.9" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.1</text><line x1="46.0" y1="115.8" x2="526.0" y2="115.8" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="41.0" y="118.8" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.2</text><line x1="46.0" y1="76.7" x2="526.0" y2="76.7" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="41.0" y="79.7" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.3</text><line x1="46.0" y1="37.6" x2="526.0" y2="37.6" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="41.0" y="40.6" fill="#6a6378" font-size="8.5" text-anchor="end" style="font-family:sans-serif;">0.4</text><line x1="46.0" y1="18.0" x2="46.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="46.0" y="207.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">0.00</text><line x1="166.0" y1="18.0" x2="166.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="166.0" y="207.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">0.15</text><line x1="286.0" y1="18.0" x2="286.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="286.0" y="207.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">0.30</text><line x1="406.0" y1="18.0" x2="406.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="406.0" y="207.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">0.45</text><line x1="526.0" y1="18.0" x2="526.0" y2="194.0" stroke="#2c2738" stroke-width="0.5" stroke-dasharray="2 5" opacity="1"/><text x="526.0" y="207.0" fill="#6a6378" font-size="9" text-anchor="middle" style="font-family:sans-serif;">0.60</text><line x1="46.0" y1="194.0" x2="526.0" y2="194.0" stroke="#58c08a" stroke-width="2.6" opacity="1"/><polyline points="46.0,194.0 54.0,181.8 62.0,169.6 70.0,157.4 78.0,145.1 86.0,132.9 94.0,128.2 102.0,123.5 110.0,118.8 118.0,114.0 126.0,109.3 134.0,105.9 142.0,102.6 150.0,99.2 158.0,95.8 166.0,92.4 174.0,89.8 182.0,87.1 190.0,84.5 198.0,81.9 206.0,79.2 214.0,77.3 222.0,75.3 230.0,73.4 238.0,71.4 246.0,69.5 254.0,67.5 262.0,65.6 270.0,63.7 278.0,61.7 286.0,59.8 294.0,58.5 302.0,57.1 310.0,55.8 318.0,54.5 326.0,53.2 334.0,51.9 342.0,50.6 350.0,49.3 358.0,48.0 366.0,46.7 374.0,45.9 382.0,45.0 390.0,44.2 398.0,43.4 406.0,42.5 414.0,41.7 422.0,40.9 430.0,40.0 438.0,39.2 446.0,38.4 454.0,37.9 462.0,37.5 470.0,37.1 478.0,36.7 486.0,36.2 494.0,35.8 502.0,35.4 510.0,34.9 518.0,34.5 526.0,34.1" fill="none" stroke="#9b59d0" stroke-width="2.6"/><circle cx="46.0" cy="194.0" r="5" fill="none" stroke="#d9a441" stroke-width="1.4" opacity="1"/><text x="54.0" y="186.0" fill="#d9a441" font-size="9" text-anchor="start" style="font-family:sans-serif;">ε=0: modes coincide (admissible)</text><text x="286.0" y="234.0" fill="#9b93a8" font-size="10" text-anchor="middle" style="font-family:sans-serif; font-style:italic; font-family:Georgia,serif;">transition noise ε</text><text x="12.0" y="24.0" fill="#6a6378" font-size="9" text-anchor="start" style="font-family:sans-serif;">violation</text><line x1="54.0" y1="20.0" x2="70.0" y2="20.0" stroke="#58c08a" stroke-width="2.6" opacity="1"/><text x="74.0" y="23.0" fill="#9b93a8" font-size="9.5" text-anchor="start" style="font-family:sans-serif;">state-indexed c(s′)</text><line x1="216.0" y1="20.0" x2="232.0" y2="20.0" stroke="#9b59d0" stroke-width="2.6" opacity="1"/><text x="236.0" y="23.0" fill="#9b93a8" font-size="9.5" text-anchor="start" style="font-family:sans-serif;">action-indexed c(a′)</text></svg></div><div class="fig-cap"><b>Figure 5.</b> Admissibility of the c(s′) degree of freedom. A non-uniform within-layer weight (values {0.6, 1.0, 1.6}) is attached to KL two ways. When c depends on the next <i>state</i> (green) the inner term is recoverable from the logged transition and the violation is identically zero for all ε. When c depends on the next <i>action</i> (purple) the two indexings coincide at ε=0 — where the action is pinned by the state — and the violation grows as transition noise makes the action unrecoverable from the state. The free scalar is harmless precisely when it respects the (s,a,s′)-measurability that defines admissibility.</div></div>
+
+      <h3>5.5 The c(s′) degree of freedom is admissibility-neutral</h3>
+<p>Theorem 2 characterizes the admissible regularizers up to a per-state positive scalar c(s′) multiplying the entire regularizer. A natural worry is whether this freedom is a loophole through which non-admissible behavior could re-enter. It is not, and the reason is exactly the measurability condition (A4): the inner term remains a function of s′ alone, so it is still computable from a logged transition. We make this operational by attaching a non-uniform within-layer weight (configurable; default values <span class="m">{0.6, 1.0, 1.6}</span>) to KL and asking how much of the inner term cannot be reconstructed from <span class="m">(s, a, s′)</span> — the admissibility violation — as a function of transition noise.</p>
+<p>Indexing the weight by the next <i>state</i>, <span class="m">c(s′)</span>, leaves the violation identically zero at every ε: the weight is part of the logged transition and nothing must be estimated. Indexing instead by the next <i>action</i>, <span class="m">c(a′)</span>, is a deliberate violation of (A4) — yet at <span class="m">ε = 0</span> it is indistinguishable from state-indexing, because a deterministic transition makes the action a bijective function of the next state and therefore recoverable. As ε increases the action is progressively unrecoverable from the state, and the violation rises monotonically from zero (Figure 5). We define the violation as the root-mean-square inner-term residual left after conditioning on the logged transition, <span class="m">√(𝔼<sub>s′</sub> Var<sub>a′|s′</sub>[c])</span>, where the posterior <span class="m">P(a′|s′)</span> follows from the behavior policy and the ε-transition kernel by Bayes' rule; it is zero exactly when c is measurable with respect to <span class="m">s′</span>. The boundary case is itself informative: it shows that admissibility is not about the syntactic form of c but about whether c is measurable with respect to the logged transition, with the action becoming an admissible index exactly when it carries no information beyond the state.</p>
+
+      <h3>6. Discussion</h3>
+      <p>Across calibration, estimator statistics, the <span class="m">n<sub>mc</sub></span> sweep, the horizon sweep, and the extreme off-policy protocol, a single pattern recurs: KL incurs no inner-term cost, and every other strictly-convex regularizer incurs a cost that grows with estimator variance, with trajectory length, and under tighter off-policy constraints. This is the empirical signature of off-policy admissibility — the property that the implicit reward can be evaluated from logged <span class="m">(s,a,s′)</span> transitions alone — and the experiments isolate it as the operative distinction, rather than any difference in expressivity or optimization difficulty, all of which were held fixed by construction.</p>
+
+      <p class="repro">Reproducibility. Every figure and number is regenerated live in the <b>③ Admissibility</b> tab. The configuration here is target peak 0.6, ε 0.2, batch 16, depth 4, N<sub>pairs</sub> 4000, 8 seeds, gradient mode A (exact inner-term differentiation). Use the sliders to vary each factor; "Sweep n<sub>mc</sub>" reproduces Table 3, the C<sub>Ω</sub> panel reproduces Table 2, and the depth slider reproduces Section 4. Results export as SVG and JSON.</p>
+    </div>
+  </section>
+
+  <!-- ════════ TASK 1 ════════ -->
+  <section class="task" id="t1">
+    <div class="eyebrow">LEGENDRE DUALITY · PRIMAL ↔ DUAL</div>
+    <div class="headline math"><span style="color:var(--star)">B_Ω(π ‖ π*)</span> = <span style="color:var(--pi)">B_Ω*(q* ‖ q)</span></div>
+    <div class="sub">같은 Bregman 갭을 정책 simplex 위의 곡면 Ω와, 게이지(β·𝟙)를 quotient한 Q-공간 위의 conjugate 곡면 Ω*에서 동시에 본다. 드래그로 회전.</div>
+    <div class="seg" id="t1-reg"></div>
+    <div class="seg" id="t1-mode">
+      <button data-v="primal" class="on">원공간 · Ω(π) over Δ²</button>
+      <button data-v="dual">쌍대공간 · Ω*(q) over Q/𝟙</button>
+    </div>
+    <div class="panelbox" style="position:relative">
+      <div id="t1-mount"></div>
+      <div style="position:absolute;left:12px;top:10px;font-size:11px;color:var(--faint);pointer-events:none">드래그로 회전</div>
+      <div style="position:absolute;right:10px;bottom:10px;display:flex;gap:6px">
+        <button class="btn" style="flex:none;width:34px;height:34px" id="t1-zout">−</button>
+        <button class="btn" style="flex:none;width:34px;height:34px" id="t1-zin">+</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;align-items:stretch">
+      <div style="flex:0 0 46%">
+        <svg id="t1-map" viewBox="0 0 200 178" style="width:100%;background:var(--panel);border-radius:12px;border:1px solid var(--line);touch-action:none"></svg>
+        <div style="font-size:10.5px;color:var(--faint);margin-top:4px;text-align:center">π, π*를 끌면 곡면이 따라간다</div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+        <div class="card" style="margin:0;padding:9px 12px">
+          <div style="font-size:10px;color:var(--faint)">원공간에서 잰 갭</div>
+          <div class="math" style="font-size:12.5px;color:var(--star)">B_Ω(π ‖ π*)</div>
+          <div class="mono" style="font-size:17px" id="t1-bp">—</div>
+        </div>
+        <div class="card" style="margin:0;padding:9px 12px">
+          <div style="font-size:10px;color:var(--faint)">쌍대공간에서 잰 갭 (순서 역전)</div>
+          <div class="math" style="font-size:12.5px;color:var(--pi)">B_Ω*(q* ‖ q)</div>
+          <div class="mono" style="font-size:17px" id="t1-bd">—</div>
+        </div>
+        <div class="mono" style="font-size:10px;color:var(--gold);text-align:center" id="t1-diff"></div>
+      </div>
+    </div>
+    <p class="cap">원공간: 보라 패치 = π*의 접평면, 마젠타 기둥 = Fenchel–Young 갭. 쌍대공간: KL이면 log-sum-exp(자유에너지) 곡면이고 접평면의 <i>기울기 자체가 π</i>다(∇Ω* = softmax). χ²·Euclidean은 simplex 사영이라 π*가 경계에 닿으면 쌍대 등식이 어긋날 수 있다 — essential smoothness의 부재가 기하로 드러나는 지점.</p>
+  </section>
+
+  <!-- ════════ TASK 2 ════════ -->
+  <section class="task" id="t2">
+    <div class="eyebrow">THEOREM 1 · LIVE — 좌변(DP) vs 우변(MC)</div>
+    <div class="headline math"><span style="color:var(--gold)">Q*(s,a) − Q^π(s,a)</span> = α <span style="color:var(--pi)">𝔼<sub style="font-size:11px">τ∼ℙ^π</sub></span>[ Σ<sub style="font-size:10px">l&gt;0</sub> γ<sup style="font-size:10px">l</sup> <span style="color:var(--star)">B_Ω(π‖π*)</span> ]</div>
+    <div class="sub">π*는 끌 수 없다 — 보상과 α로부터 계산된다. edge 클릭으로 보상을 부여하고, 그 edge의 Q*·Q^π·gap을 확인한 뒤 MC rollout이 같은 값으로 수렴하는 것을 본다.</div>
+    <div class="seg" id="t2-reg"></div>
+    <div class="row">
+      <div class="sl"><div class="lab"><span class="math">α 온도</span><span class="mono" id="t2-alpha-v">1.00</span></div><input type="range" id="t2-alpha" min="0.3" max="3" step="0.05" value="1" style="accent-color:var(--star)"></div>
+      <div class="sl"><div class="lab"><span class="math">γ 할인</span><span class="mono" id="t2-gamma-v">0.90</span></div><input type="range" id="t2-gamma" min="0.6" max="0.99" step="0.01" value="0.9" style="accent-color:var(--gold)"></div>
+      <div class="sl"><div class="lab"><span class="math">ε 전이잡음</span><span class="mono" id="t2-eps-v">0.20</span></div><input type="range" id="t2-eps" min="0" max="0.6" step="0.02" value="0.2" style="accent-color:var(--pi)"></div>
+    </div>
+    <svg id="t2-map" viewBox="0 0 580 252" class="panelbox" style="width:100%;touch-action:manipulation"></svg>
+    <div class="btnrow">
+      <button class="btn" id="t2-randr">보상 무작위</button>
+      <button class="btn" id="t2-snap">π ← π*</button>
+      <button class="btn" id="t2-shuf">π 흐트리기</button>
+    </div>
+    <div id="t2-info"></div>
+    <div id="t2-warn"></div>
+    <div class="btnrow">
+      <button class="btn accent" id="t2-s1">τ +1</button>
+      <button class="btn" id="t2-s100">+100</button>
+      <button class="btn" id="t2-s1000">+1000</button>
+      <button class="btn" id="t2-reset">리셋</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div class="card" style="flex:1;margin:0;padding:9px 12px">
+        <div style="font-size:10px;color:var(--dim)" id="t2-exact-lab">좌변 · DP 정확값</div>
+        <div class="mono" style="font-size:17px;color:var(--gold)" id="t2-exact">—</div>
+      </div>
+      <div class="card" style="flex:1;margin:0;padding:9px 12px">
+        <div style="font-size:10px;color:var(--dim)" id="t2-mc-lab">우변 · MC 추정 (N=0)</div>
+        <div class="mono" style="font-size:17px;color:var(--pi)" id="t2-mc">—</div>
+      </div>
+    </div>
+    <div class="mono" style="font-size:10.5px;color:var(--faint);text-align:center;margin-bottom:10px" id="t2-err"></div>
+    <svg id="t2-conv" viewBox="0 0 560 132" class="panelbox" style="width:100%"></svg>
+    <p class="cap">마젠타 아치 = 마지막 τ (직선 edge와 겹치지 않게 띄움). node 호버: π가 edge 굵기로. edge 호버: 다음 층 노드가 전이확률 비례 금색·퍼센트로. divergence를 바꾸면 π* 계산기가 softmax / 이분법 / simplex 사영으로 갈아끼워진다.</p>
+  </section>
+
+  <!-- ════════ TASK 3 ════════ -->
+  <section class="task" id="t3">
+    <div class="eyebrow">OFF-POLICY ADMISSIBILITY · STATISTICAL EXPERIMENT</div>
+    <div class="headline math">Same MDP, same preference data → compare DPO training under seven regularizers Ω</div>
+    <div class="sub">We sample trajectory pairs from a <b>uniform behavior policy</b> (this is what makes the data "off-policy"), label which one is preferred with a Bradley–Terry coin flip, then train a tabular DPO policy under each of seven divergences on the <b>exact same data</b>. The implicit reward of DPO contains an inner term C_Ω(s') = E<sub>a'∼π</sub>[Φ]. For non-KL divergences this expectation must be estimated from n_mc action samples; for <b>KL it is a constant</b>, so KL needs no estimation at all. The question: does that asymmetry show up as a difference in how close each trained policy gets to its own optimum?</div>
+    <div class="row">
+      <div class="sl" style="flex:1.3"><div class="lab"><span class="math">target peak</span><span class="mono" id="t3-peak-v">0.60</span></div><input type="range" id="t3-peak" min="0.4" max="0.9" step="0.01" value="0.6" style="accent-color:var(--paper)"></div>
+      <div class="sl"><div class="lab"><span class="math">n_mc</span><span class="mono" id="t3-nmc-v">2</span></div><input type="range" id="t3-nmc" min="1" max="16" step="1" value="2" style="accent-color:var(--star)"></div>
+      <div class="sl"><div class="lab"><span class="math">N_pairs</span><span class="mono" id="t3-np-v">600</span></div><input type="range" id="t3-np" min="200" max="10000" step="200" value="600" style="accent-color:var(--gold)"></div>
+      <div class="sl"><div class="lab"><span class="math">seeds</span><span class="mono" id="t3-sd-v">3</span></div><input type="range" id="t3-sd" min="1" max="10" step="1" value="3" style="accent-color:var(--pi)"></div>
+      <div class="sl"><div class="lab"><span class="math">depth (L)</span><span class="mono" id="t3-dep-v">4</span></div><input type="range" id="t3-dep" min="3" max="8" step="1" value="4" style="accent-color:var(--hel)"></div>
+      <div class="sl"><div class="lab"><span class="math">ε (transition noise)</span><span class="mono" id="t3-eps-v">0.20</span></div><input type="range" id="t3-eps" min="0" max="0.6" step="0.02" value="0.2" style="accent-color:var(--euc)"></div>
+      <div class="sl"><div class="lab"><span class="math">batch (2ⁿ)</span><span class="mono" id="t3-bs-v">16</span></div><input type="range" id="t3-bs" min="0" max="6" step="1" value="4" style="accent-color:var(--adiv)"></div>
+    </div>
+    <div style="font-size:10.5px;color:var(--faint);line-height:1.6;margin:-2px 2px 8px">
+      <b>target peak</b>: how sharp the optimal policy is (mean over states of its largest action prob); α is auto-tuned per divergence to hit it. ·
+      <b>n_mc</b>: action samples used to estimate the inner term (KL ignores it). ·
+      <b>N_pairs</b>: size of the shared preference dataset. ·
+      <b>seeds</b>: training repeats (error bars). ·
+      <b>depth (L)</b>: trajectory length; longer trajectories accumulate more inner-term noise, sharpening the KL vs non-KL gap. ·
+      <b>ε</b>: chance a chosen action lands in a different next state. ·
+      <b>batch</b>: SGD minibatch; smaller keeps estimator noise from averaging away.
+    </div>
+    <div class="seg" id="t3-mode" style="max-width:420px">
+      <button data-v="A" class="on">gradient: A · exact ∂Ĉ/∂θ</button>
+      <button data-v="B">gradient: B · scale-only (approx)</button>
+    </div>
+    <div class="seg" id="t3-offp" style="max-width:460px">
+      <button data-v="on" class="on">inner term: on-policy · resample a' from π(·|s')</button>
+      <button data-v="off">inner term: extreme off-policy · use data a' only</button>
+    </div>
+    <div class="mono" id="t3-chips" style="font-size:10.5px;line-height:1.9;margin:-4px 0 10px"></div>
+    <div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px">MDP instance — this is the shared environment all seven divergences train on. Columns = layers (l=0…L−1), rows = states, edges = actions. Hover a node to see its 3 reward values; edge thickness ∝ transition probability (action aᵢ aims at next-layer state sᵢ with prob 1−ε, else spreads).</div>
+      <svg id="t3-mdp" viewBox="0 0 560 200" style="width:100%"></svg>
+    </div>
+    <div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-cstats-title">C_Ω statistics — at the calibrated π*_Ω · solid bar = spread across states std_s[C], faint bar = std of a 1-sample estimate (log scale). KL is exactly 0 on both.</div>
+      <svg id="t3-cstats" viewBox="0 0 560 190" style="width:100%"></svg>
+    </div>
+    <div class="card" style="padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:11px;color:var(--paper);font-weight:600">The c(s′) degree of freedom — is it admissibility-neutral?</div>
+        <button class="btn" id="t3-dl-cprobe" style="flex:0 0 auto;padding:5px 10px;font-size:11px">Save SVG</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--dim);line-height:1.6;margin-bottom:8px">
+        Theorem 2 allows a per-state scalar c(s′) multiplying the whole regularizer. We give KL a non-uniform
+        within-layer weight (set the three values below) and ask whether the inner term C<sub>Ω</sub>(s′) is
+        still computable from a logged transition (s, a, s′) alone. The curve is the irreducible inner-term error
+        when predicting it from (s, a, s′) — i.e. the admissibility violation — as transition noise ε varies.
+      </div>
+      <div class="row" style="margin-bottom:6px">
+        <div class="sl"><div class="lab"><span class="math">c₀ (state/action 0)</span><span class="mono" id="t3-c0-v">0.60</span></div><input type="range" id="t3-c0" min="0.2" max="2" step="0.05" value="0.6" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">c₁ (state/action 1)</span><span class="mono" id="t3-c1-v">1.00</span></div><input type="range" id="t3-c1" min="0.2" max="2" step="0.05" value="1.0" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">c₂ (state/action 2)</span><span class="mono" id="t3-c2-v">1.60</span></div><input type="range" id="t3-c2" min="0.2" max="2" step="0.05" value="1.6" style="accent-color:var(--chi)"></div>
+      </div>
+      <div class="seg" id="t3-cidx" style="max-width:420px;margin-bottom:8px">
+        <button data-v="both" class="on">show both</button>
+        <button data-v="state">state-indexed c(s′) only</button>
+        <button data-v="action">action-indexed c(a′) only</button>
+      </div>
+      <svg id="t3-cprobe" viewBox="0 0 560 230" style="width:100%"></svg>
+      <div style="font-size:10.5px;color:var(--faint);line-height:1.6;margin-top:6px">
+        <b style="color:var(--chi)">state-indexed c(s′)</b>: depends only on the next state → recoverable from the data, violation ≡ 0 at every ε (admissible). ·
+        <b style="color:var(--rkl)">action-indexed c(a′)</b>: depends on the next action → at ε=0 the action is pinned by the state (a′↔s′ bijective) so it coincides with state-indexing and stays admissible; as ε grows the action is no longer recoverable from s′ and the violation rises.
+      </div>
+    </div>
+    <div class="card" style="padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--dim)">α–peak sweep — peak maxₗ π*_Ω(ℓ) vs regularization weight α (log scale) · dashed = target peak, vertical lines = each divergence's calibrated α</div>
+        <button class="btn" id="t3-dl-sweep" style="flex:0 0 auto;padding:5px 10px;font-size:11px">Save SVG</button>
+      </div>
+      <svg id="t3-sweep-plot" viewBox="0 0 560 330" style="width:100%"></svg>
+    </div>
+    <div class="btnrow">
+      <button class="btn" id="t3-dl-curves">Curves SVG</button>
+      <button class="btn" id="t3-dl-bars">Bars SVG</button>
+      <button class="btn" id="t3-dl-pols">Policy panels SVG</button>
+      <button class="btn" id="t3-dl-json">Results JSON</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn accent" id="t3-run">Train (current n_mc)</button>
+      <button class="btn" id="t3-sweep">Sweep n_mc {1, 4, 16}</button>
+      <button class="btn" id="t3-newmdp" style="flex:0.6">New MDP & data</button>
+    </div>
+    <div class="progress"><div id="t3-prog"></div></div>
+    <div class="mono" style="font-size:10.5px;color:var(--faint);margin-bottom:10px" id="t3-status">Idle — γ=0.9, 300 Adam steps · A mode default · adjustable: ε, batch, gradient mode, off-policy. Press "Train" to run.</div>
+
+    <div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px">Training curves — policy gap = mean TV(π_θ, π*_Ω) over states (lower is better, averaged over seeds)</div>
+      <svg id="t3-curves" viewBox="0 0 560 180" style="width:100%"></svg>
+    </div>
+    <div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-bar-title">Final policy gap (± seed std)</div>
+      <svg id="t3-bars" viewBox="0 0 560 190" style="width:100%"></svg>
+    </div>
+    <div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-pol-title">Policy comparison — π*_Ω (dashed, open circles) vs π_θ (solid, squares) · shown after training</div>
+      <svg id="t3-pols" viewBox="0 0 560 770" style="width:100%"></svg>
+    </div>
+    <p class="cap">Each Ω targets <i>its own</i> optimal policy π*_Ω, and the gap is measured with a common ruler (mean TV distance). Since the MDP and data are fully shared across all seven Ω, the only thing that can differ is the inner-term estimation inside the learner. KL has a constant C_Ω, so it is unaffected by n_mc; non-KL divergences get a larger gap at small n_mc — this is the statistical fingerprint of off-policy admissibility. Use "Sweep n_mc" to see KL stay flat while the others decrease as n_mc grows.</p>
+  </section>
+
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ═══════════════════ shared math: 3 actions, ref = uniform(⅓) ═══════════════════ */
+const L=4, SN=3, EPSI=0.02;
+const clampN=(x,a,b)=>Math.min(b,Math.max(a,x));
+const lg=x=>Math.log(Math.max(x,1e-12));
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const normS=v=>{const c=v.map(x=>clampN(x,EPSI,1));const s=c[0]+c[1]+c[2];return c.map(x=>x/s);};
+const softmax3=(q,al)=>{const m=Math.max(...q);const w=q.map(x=>Math.exp((x-m)/al));const z=w[0]+w[1]+w[2];return[w[0]/z,w[1]/z,w[2]/z];};
+function projS3(y){const u=[...y].sort((a,b)=>b-a);let css=0,th=0;for(let i=0;i<3;i++){css+=u[i];const t=(css-1)/(i+1);if(u[i]-t>0)th=t;}return y.map(v=>Math.max(v-th,0));}
+
+/* f-divergence helper: Ω(π)=Σ ref·f(u), u=π/ref, ref=⅓ */
+const mkF=(f,fp)=>({
+  omega:p=>p.reduce((s,x)=>s+(1/3)*f(3*Math.max(x,1e-12)),0),
+  grad:p=>p.map(x=>fp(3*Math.max(x,1e-12))),
+  breg:(p,q)=>p.reduce((s,pi,i)=>{const up=3*Math.max(pi,1e-12),uq=3*Math.max(q[i],1e-12);
+    return s+(1/3)*(f(up)-f(uq)-fp(uq)*(up-uq));},0),
+});
+const bis=(fn,lo,hi,it)=>{for(let i=0;i<it;i++){const m=(lo+hi)/2;if(fn(m)>0)lo=m;else hi=m;}return(lo+hi)/2;};
+const fKL=t=>t*lg(t),                          fpKL=t=>lg(t)+1;
+const fAD=t=>(Math.pow(t,1.5)-1.5*t+0.5)/0.75, fpAD=t=>2*(Math.sqrt(t)-1);
+const fRK=t=>-lg(t),                           fpRK=t=>-1/t;
+const fJS=t=>t*lg(2*t/(1+t))+lg(2/(1+t)),      fpJS=t=>lg(2*t/(1+t));
+const fHE=t=>(Math.sqrt(t)-1)**2,              fpHE=t=>1-1/Math.sqrt(t);
+const fX2=t=>(t-1)**2,                         fpX2=t=>2*(t-1);
+
+const REG = {
+  kl:{label:"KL",shortLabel:"KL",color:"#e84393",essSmooth:true,...mkF(fKL,fpKL),
+    argmax:(Q,al)=>softmax3(Q,al),
+    gradDPO:p=>p.map(x=>lg(3*x)+1),
+    dGdTheta:(p,a,b)=>(a===b?1:0)-p[b],
+    Phi:u=>1, dPhi:null, constC:true, range:2.3},
+  adiv:{label:"α-div (a=1.5)",shortLabel:"α-div",color:"#c455b8",essSmooth:false,...mkF(fAD,fpAD),
+    argmax:(Q,al)=>{
+      const sum=c=>Q.reduce((s,qa)=>{const y=(qa-c)/al;const r=Math.max((y+2)/2,0);return s+(1/3)*r*r;},0)-1;
+      const c=bis(sum,Math.min(...Q)-40*al,Math.max(...Q)+2*al,90);
+      const p=Q.map(qa=>{const y=(qa-c)/al;const r=Math.max((y+2)/2,0);return (1/3)*r*r;});
+      const z=p[0]+p[1]+p[2];return p.map(x=>x/z);},
+    gradDPO:p=>p.map(x=>fpAD(3*Math.max(x,1e-12))),
+    dGdTheta:(p,a,b)=>3*p[a]*((a===b?1:0)-p[b])/Math.sqrt(3*Math.max(p[a],1e-12)),
+    Phi:u=>(2/3)*(Math.sqrt(u)-1/u), dPhi:u=>(2/3)*(0.5/Math.sqrt(u)+1/(u*u)), constC:false, range:2.0},
+  rkl:{label:"Reverse KL",shortLabel:"RKL",color:"#9b59d0",essSmooth:true,...mkF(fRK,fpRK),
+    argmax:(Q,al)=>{const mx=Math.max(...Q);
+      const sum=c=>Q.reduce((s,qa)=>s+al/3/(c-qa),0)-1;
+      const c=bis(sum,mx+1e-10,mx+1000*al+10,90);
+      const p=Q.map(qa=>al/3/(c-qa));const z=p[0]+p[1]+p[2];return p.map(x=>x/z);},
+    gradDPO:p=>p.map(x=>-1/(3*x)),
+    dGdTheta:(p,a,b)=>((a===b?1:0)-p[b])/(3*p[a]),
+    Phi:u=>(lg(u)-1)/u, dPhi:u=>(2-lg(u))/(u*u), constC:false, range:4.5},
+  js:{label:"JS",shortLabel:"JS",color:"#6f6ae0",essSmooth:true,...mkF(fJS,fpJS),
+    argmax:(Q,al)=>{const mx=Math.max(...Q);
+      const tOf=y=>{const e=Math.exp(Math.min(y,0.6931));return e/Math.max(2-e,1e-12);};
+      const sum=c=>Q.reduce((s,qa)=>s+(1/3)*tOf((qa-c)/al),0)-1;
+      const c=bis(sum,mx-al*Math.LN2+1e-9,mx+60*al,90);
+      const p=Q.map(qa=>(1/3)*tOf((qa-c)/al));
+      const z=p[0]+p[1]+p[2];return p.map(x=>x/z);},
+    gradDPO:p=>p.map(x=>fpJS(3*Math.max(x,1e-12))),
+    dGdTheta:(p,a,b)=>((a===b?1:0)-p[b])/(1+3*p[a]),
+    Phi:u=>lg((1+u)/2)/u, dPhi:u=>((u/(1+u))-lg((1+u)/2))/(u*u), constC:false, range:1.8},
+  hel:{label:"sq. Hellinger",shortLabel:"Hel",color:"#5585e0",essSmooth:true,...mkF(fHE,fpHE),
+    argmax:(Q,al)=>{const mx=Math.max(...Q);
+      const tOf=y=>{const r=1/(1-Math.min(y,0.999999));return r*r;};
+      const sum=c=>Q.reduce((s,qa)=>s+(1/3)*tOf((qa-c)/al),0)-1;
+      const c=bis(sum,mx-al+1e-9,mx+60*al,90);
+      const p=Q.map(qa=>(1/3)*tOf((qa-c)/al));
+      const z=p[0]+p[1]+p[2];return p.map(x=>x/z);},
+    gradDPO:p=>p.map(x=>fpHE(3*Math.max(x,1e-12))),
+    dGdTheta:(p,a,b)=>1.5*p[a]*((a===b?1:0)-p[b])/Math.pow(3*Math.max(p[a],1e-12),1.5),
+    Phi:u=>1/Math.sqrt(u)-1/u, dPhi:u=>-0.5*Math.pow(u,-1.5)+1/(u*u), constC:false, range:2.4},
+  chi2:{label:"Pearson χ²",shortLabel:"χ²",color:"#4fa8d8",essSmooth:false,...mkF(fX2,fpX2),
+    argmax:(Q,al)=>projS3(Q.map(q=>1/3+q/(6*al))),
+    gradDPO:p=>p.map(x=>2*(3*x-1)),
+    dGdTheta:(p,a,b)=>6*p[a]*((a===b?1:0)-p[b]),
+    Phi:u=>2*(u-1)-((u-1)**2)/u, dPhi:u=>1+1/(u*u), constC:false, range:2.8},
+  euc:{label:"sq. Euclidean",shortLabel:"Euc",color:"#5bc8d6",essSmooth:false,
+    omega:p=>0.5*p.reduce((s,x)=>s+(x-1/3)**2,0),
+    grad:p=>p.map(x=>x-1/3),
+    breg:(p,q)=>0.5*p.reduce((s,pi,i)=>s+(pi-q[i])**2,0),
+    argmax:(Q,al)=>projS3(Q.map(q=>1/3+q/al)),
+    gradDPO:p=>p.map(x=>x-1/3),
+    dGdTheta:(p,a,b)=>p[a]*((a===b?1:0)-p[b]),
+    Phi:null, dPhi:null, constC:false, range:0.95},
+};
+const REGKEYS=["kl","adiv","rkl","js","hel","chi2","euc"];
+
+const transP=(a,eps)=>[0,1,2].map(s2=>s2===a?1-eps:eps/2);
+const sampleCat=pr=>{let u=Math.random();for(let i=0;i<pr.length;i++){u-=pr[i];if(u<=0)return i;}return pr.length-1;};
+const newRewards=(depth)=>Array.from({length:depth||L},()=>Array.from({length:SN},()=>[rnd(-0.8,0.8),rnd(-0.8,0.8),rnd(-0.8,0.8)]));
+const randPi=()=>normS([rnd(0.05,1),rnd(0.05,1),rnd(0.05,1)]);
+
+function solveDP(regK, r, pis, alpha, gamma, eps, depth){
+  const R=REG[regK];const LL=depth||L;
+  const Qs=[],Qp=[],pistar=[],Vs=[],Vp=[],B=[];
+  for(let l=0;l<LL;l++){Qs.push([]);Qp.push([]);pistar.push([]);Vs.push(new Array(SN));Vp.push(new Array(SN));B.push(new Array(SN));}
+  let boundary=false;
+  const EV=(V,l,a)=>l===LL-1?0:transP(a,eps).reduce((acc,p,s2)=>acc+p*V[l+1][s2],0);
+  for(let l=LL-1;l>=0;l--)for(let s=0;s<SN;s++){
+    const q=[0,1,2].map(a=>r[l][s][a]+gamma*EV(Vs,l,a));Qs[l][s]=q;
+    const ps=R.argmax(q,alpha);if(Math.min(...ps)<1e-7)boundary=true;
+    pistar[l][s]=ps;Vs[l][s]=ps[0]*q[0]+ps[1]*q[1]+ps[2]*q[2]-alpha*R.omega(ps.map(x=>Math.max(x,1e-12)));
+  }
+  for(let l=LL-1;l>=0;l--)for(let s=0;s<SN;s++){
+    const q=[0,1,2].map(a=>r[l][s][a]+gamma*EV(Vp,l,a));Qp[l][s]=q;
+    const p=pis[l][s];Vp[l][s]=p[0]*q[0]+p[1]*q[1]+p[2]*q[2]-alpha*R.omega(p);
+    B[l][s]=R.breg(p,pistar[l][s].map(x=>Math.max(x,1e-12)));
+  }
+  return {Qs,Qp,pistar,Vs,Vp,B,boundary};
+}
+
+/* tiny DOM helpers */
+const $=id=>document.getElementById(id);
+const el=(tag,attrs={},html)=>{const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(html!=null)e.textContent=html;return e;};
+
+/* nav */
+document.querySelectorAll(".navbtn").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".navbtn").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll("section.task").forEach(x=>x.classList.remove("show"));
+  b.classList.add("active");$(b.dataset.task).classList.add("show");
+  if(b.dataset.task==="t1")T1.ensure();
+}));
+function makeSeg(container, keys, cur, onSel){
+  container.innerHTML="";
+  keys.forEach(k=>{
+    const b=document.createElement("button");b.textContent=REG[k].label;
+    if(k===cur)b.classList.add("on");
+    b.addEventListener("click",()=>{container.querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");onSel(k);});
+    container.appendChild(b);
+  });
+}
+
+/* ═══════════════════ TASK 1 — 3D dual manifold ═══════════════════ */
+const T1=(()=>{
+  let regK="kl", mode="primal";
+  let pi=normS([0.15,0.55,0.3]), pistar=normS([0.6,0.22,0.18]);
+  let inited=false, renderer, scene, camera, surfGroup, dynGroup, hFn, Yfn;
+  const cam={theta:0.55,phi:1.08,dist:4.3};
+
+  /* sum-zero basis for dual coords */
+  const D1=[1/Math.SQRT2,-1/Math.SQRT2,0], D2=[1/Math.sqrt(6),1/Math.sqrt(6),-2/Math.sqrt(6)];
+  const toUV=q=>{const m=(q[0]+q[1]+q[2])/3;const c=[q[0]-m,q[1]-m,q[2]-m];
+    return[c[0]*D1[0]+c[1]*D1[1]+c[2]*D1[2], c[0]*D2[0]+c[1]*D2[1]+c[2]*D2[2]];};
+  const fromUV=(u,v)=>[u*D1[0]+v*D2[0],u*D1[1]+v*D2[1],u*D1[2]+v*D2[2]];
+
+  const dualPi=q=>REG[regK].argmax(q,1);
+  const omegaStar=q=>{
+    const p=dualPi(q).map(x=>Math.max(x,1e-12));
+    return p[0]*q[0]+p[1]*q[1]+p[2]*q[2]-REG[regK].omega(p);
+  };
+  const bregDual=(qs,qq)=>{
+    const pq=dualPi(qq);
+    return omegaStar(qs)-omegaStar(qq)-(pq[0]*(qs[0]-qq[0])+pq[1]*(qs[1]-qq[1])+pq[2]*(qs[2]-qq[2]));
+  };
+
+  const TA=[0,-1.05],TB=[-0.95,0.78],TC=[0.95,0.78];
+  const baryXZ=l=>[l[0]*TA[0]+l[1]*TB[0]+l[2]*TC[0], l[0]*TA[1]+l[1]*TB[1]+l[2]*TC[1]];
+  const xzBary=(x,z)=>{const d=(TB[1]-TC[1])*(TA[0]-TC[0])+(TC[0]-TB[0])*(TA[1]-TC[1]);
+    const l1=((TB[1]-TC[1])*(x-TC[0])+(TC[0]-TB[0])*(z-TC[1]))/d;
+    const l2=((TC[1]-TA[1])*(x-TC[0])+(TA[0]-TC[0])*(z-TC[1]))/d;
+    return[l1,l2,1-l1-l2];};
+
+  const RAMP=[[26,22,34],[62,32,64],[128,42,96],[225,70,148],[255,213,235]];
+  const ramp=t=>{const x=clampN(t,0,1)*(RAMP.length-1);const i=Math.min(Math.floor(x),RAMP.length-2);const f=x-i;
+    const a=RAMP[i],b=RAMP[i+1];return[(a[0]+(b[0]-a[0])*f)/255,(a[1]+(b[1]-a[1])*f)/255,(a[2]+(b[2]-a[2])*f)/255];};
+
+  function buildHF(){
+    if(mode==="primal")return (x,z)=>{const l=xzBary(x,z);if(l[0]<0.004||l[1]<0.004||l[2]<0.004)return null;
+      return REG[regK].omega(normS(l));};
+    const r=REG[regK].range;
+    return (x,z)=>omegaStar(fromUV((x/1.05)*r,(z/1.05)*r));
+  }
+
+  function buildSurface(){
+    surfGroup.clear();
+    hFn=buildHF();
+    let hMax=-1e18,hMin=1e18;
+    for(let i=0;i<=40;i++)for(let j=0;j<=40;j++){
+      const x=-1.05+2.1*i/40,z=-1.05+2.1*j/40;const h=hFn(x,z);if(h==null)continue;
+      if(h>hMax)hMax=h;if(h<hMin)hMin=h;
+    }
+    const span=Math.max(hMax-hMin,1e-9), S=1.15/span;
+    Yfn=h=>(h-hMin)*S;
+    const positions=[],colors=[],indices=[];
+    if(mode==="primal"){
+      const N=52,idx=[];let k=0;
+      for(let i=0;i<=N;i++){idx.push([]);
+        for(let j=0;j<=N-i;j++){
+          const l=[i/N,j/N,(N-i-j)/N];const[x,z]=baryXZ(l);
+          const h=REG[regK].omega(normS(l));
+          positions.push(x,Yfn(h),z);
+          const c=ramp(Math.sqrt((h-hMin)/span));colors.push(c[0],c[1],c[2]);idx[i].push(k++);
+        }}
+      for(let i=0;i<N;i++)for(let j=0;j<N-i;j++){
+        indices.push(idx[i][j],idx[i+1][j],idx[i][j+1]);
+        if(j<N-i-1)indices.push(idx[i+1][j],idx[i+1][j+1],idx[i][j+1]);
+      }
+    }else{
+      const N=56;
+      for(let i=0;i<=N;i++)for(let j=0;j<=N;j++){
+        const x=-1.05+2.1*i/N,z=-1.05+2.1*j/N;const h=hFn(x,z);
+        positions.push(x,Yfn(h),z);
+        const c=ramp(Math.sqrt((h-hMin)/span));colors.push(c[0],c[1],c[2]);
+      }
+      for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+        const a=i*(N+1)+j;indices.push(a,a+N+1,a+1,a+N+1,a+N+2,a+1);
+      }
+    }
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+    geo.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    geo.setIndex(indices);geo.computeVertexNormals();
+    surfGroup.add(new THREE.Mesh(geo,new THREE.MeshPhongMaterial({vertexColors:true,side:THREE.DoubleSide,shininess:26,specular:new THREE.Color(0x332b44)})));
+    const out= mode==="primal"
+      ? [TA,TB,TC,TA].map(([x,z])=>new THREE.Vector3(x,0.001,z))
+      : [[-1.05,-1.05],[1.05,-1.05],[1.05,1.05],[-1.05,1.05],[-1.05,-1.05]].map(([x,z])=>new THREE.Vector3(x,0.001,z));
+    surfGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(out),new THREE.LineBasicMaterial({color:0x4a4360})));
+  }
+
+  function buildDyn(){
+    dynGroup.clear();
+    const hAt=(x,z)=>{const h=hFn(x,z);return h==null?0:Yfn(h);};
+    let anchor,probe;
+    if(mode==="primal"){anchor=baryXZ(pistar);probe=baryXZ(pi);}
+    else{
+      const r=REG[regK].range;
+      const[us,vs]=toUV(REG[regK].grad(pistar.map(x=>Math.max(x,1e-9))));
+      const[up,vp]=toUV(REG[regK].grad(pi));
+      anchor=[(clampN(up,-r,r)/r)*1.05,(clampN(vp,-r,r)/r)*1.05];
+      probe=[(clampN(us,-r,r)/r)*1.05,(clampN(vs,-r,r)/r)*1.05];
+    }
+    const[ax,az]=anchor,[px,pz]=probe;const ay=hAt(ax,az);
+    const d=0.012;
+    const gx=(hAt(ax+d,az)-hAt(ax-d,az))/(2*d), gz=(hAt(ax,az+d)-hAt(ax,az-d))/(2*d);
+    const planeY=(x,z)=>ay+gx*(x-ax)+gz*(z-az);
+    const pd=0.6, corners=[[ax-pd,az-pd],[ax+pd,az-pd],[ax+pd,az+pd],[ax-pd,az+pd]];
+    const pg=new THREE.BufferGeometry();
+    pg.setAttribute("position",new THREE.Float32BufferAttribute(corners.flatMap(([x,z])=>[x,planeY(x,z),z]),3));
+    pg.setIndex([0,1,2,0,2,3]);pg.computeVertexNormals();
+    dynGroup.add(new THREE.Mesh(pg,new THREE.MeshBasicMaterial({color:0x8d7dd6,transparent:true,opacity:0.32,side:THREE.DoubleSide,depthWrite:false})));
+    dynGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners.map(([x,z])=>new THREE.Vector3(x,planeY(x,z),z))),new THREE.LineBasicMaterial({color:0x8d7dd6})));
+    const yS=hAt(px,pz),yP=planeY(px,pz),gapH=Math.abs(yS-yP);
+    if(gapH>1e-4){
+      const cyl=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,gapH,8),new THREE.MeshBasicMaterial({color:0xe84393}));
+      cyl.position.set(px,(yS+yP)/2,pz);dynGroup.add(cyl);
+    }
+    const mk=(x,z,col)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.052,18,14),new THREE.MeshPhongMaterial({color:col,shininess:60}));m.position.set(x,hAt(x,z),z);dynGroup.add(m);};
+    mk(ax,az, mode==="primal"?0xe84393:0x5bc8d6);
+    mk(px,pz, mode==="primal"?0x5bc8d6:0xe84393);
+  }
+
+  function updateReadouts(){
+    const Bp=REG[regK].breg(pi,pistar.map(x=>Math.max(x,1e-12)));
+    const qs=REG[regK].grad(pistar.map(x=>Math.max(x,1e-9)));
+    const qp=REG[regK].grad(pi);
+    const Bd=bregDual(qs,qp);
+    $("t1-bp").textContent=Bp.toFixed(5);
+    $("t1-bd").textContent=Bd.toFixed(5);
+    $("t1-diff").textContent="|차이| = "+Math.abs(Bp-Bd).toExponential(1);
+  }
+
+  /* minimap */
+  function drawMap(){
+    const svg=$("t1-map");svg.innerHTML="";
+    const W=200,H=178,A=[W/2,14],B=[16,H-16],Cv=[W-16,H-16];
+    const b2=(l)=>[l[0]*A[0]+l[1]*B[0]+l[2]*Cv[0], l[0]*A[1]+l[1]*B[1]+l[2]*Cv[1]];
+    svg.appendChild(el("polygon",{points:`${A} ${B} ${Cv}`,fill:"#221c30",stroke:"#2c2738","stroke-width":1.4}));
+    [["a₁",A[0],A[1]-4],["a₂",B[0]-2,B[1]+12],["a₃",Cv[0]+2,Cv[1]+12]].forEach(([t,x,y])=>{
+      const tx=el("text",{x,y,fill:"#6a6378","font-size":10,"text-anchor":"middle"},t);tx.setAttribute("class","math");svg.appendChild(tx);});
+    const[px,py]=b2(pi),[qx,qy]=b2(pistar);
+    svg.appendChild(el("line",{x1:px,y1:py,x2:qx,y2:qy,stroke:"#ece7df","stroke-width":0.8,"stroke-dasharray":"3 3",opacity:0.45}));
+    svg.appendChild(el("circle",{cx:qx,cy:qy,r:8,fill:"#e84393",stroke:"#13101a","stroke-width":2}));
+    svg.appendChild(el("circle",{cx:px,cy:py,r:8,fill:"#5bc8d6",stroke:"#13101a","stroke-width":2}));
+    const t1=el("text",{x:qx,y:qy-12,fill:"#e84393","font-size":11,"text-anchor":"middle"},"π*");t1.setAttribute("class","math");svg.appendChild(t1);
+    const t2=el("text",{x:px,y:py-12,fill:"#5bc8d6","font-size":11,"text-anchor":"middle"},"π");t2.setAttribute("class","math");svg.appendChild(t2);
+  }
+  function mapHandlers(){
+    const svg=$("t1-map");let drag=null;
+    const W=200,H=178,A=[W/2,14],B=[16,H-16],Cv=[W-16,H-16];
+    const xy2b=(x,y)=>{const d=(B[1]-Cv[1])*(A[0]-Cv[0])+(Cv[0]-B[0])*(A[1]-Cv[1]);
+      const l1=((B[1]-Cv[1])*(x-Cv[0])+(Cv[0]-B[0])*(y-Cv[1]))/d;
+      const l2=((Cv[1]-A[1])*(x-Cv[0])+(A[0]-Cv[0])*(y-Cv[1]))/d;
+      return normS([l1,l2,1-l1-l2]);};
+    const ev=e=>{const r=svg.getBoundingClientRect();return xy2b((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H);};
+    svg.addEventListener("pointerdown",e=>{
+      const l=ev(e);
+      const b2=(v)=>{const A2=[W/2,14],B2=[16,H-16],C2=[W-16,H-16];return[v[0]*A2[0]+v[1]*B2[0]+v[2]*C2[0],v[0]*A2[1]+v[1]*B2[1]+v[2]*C2[1]];};
+      const r=svg.getBoundingClientRect();
+      const ex=(e.clientX-r.left)/r.width*W, ey=(e.clientY-r.top)/r.height*H;
+      const[px,py]=b2(pi),[qx,qy]=b2(pistar);
+      drag=((ex-px)**2+(ey-py)**2 < (ex-qx)**2+(ey-qy)**2)?"p":"q";
+      svg.setPointerCapture(e.pointerId);
+      if(drag==="p")pi=l;else pistar=l;refresh(false);
+    });
+    svg.addEventListener("pointermove",e=>{if(!drag)return;const l=ev(e);if(drag==="p")pi=l;else pistar=l;refresh(false);});
+    const up=()=>drag=null;
+    svg.addEventListener("pointerup",up);svg.addEventListener("pointercancel",up);
+  }
+
+  function refresh(rebuildSurf){
+    if(!inited)return;
+    if(rebuildSurf)buildSurface();
+    buildDyn();drawMap();updateReadouts();
+  }
+
+  function ensure(){
+    if(inited){refresh(false);return;}
+    inited=true;
+    const mount=$("t1-mount");
+    const w=mount.clientWidth||560, h=Math.round(w*0.86);
+    renderer=new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.setSize(w,h);mount.appendChild(renderer.domElement);
+    scene=new THREE.Scene();scene.background=new THREE.Color(0x1c1825);
+    camera=new THREE.PerspectiveCamera(42,w/h,0.1,100);
+    scene.add(new THREE.AmbientLight(0xffffff,0.6));
+    const dl=new THREE.DirectionalLight(0xffffff,0.75);dl.position.set(2.5,4,3);scene.add(dl);
+    surfGroup=new THREE.Group();dynGroup=new THREE.Group();scene.add(surfGroup);scene.add(dynGroup);
+    (function tick(){
+      camera.position.set(cam.dist*Math.sin(cam.phi)*Math.sin(cam.theta),cam.dist*Math.cos(cam.phi),cam.dist*Math.sin(cam.phi)*Math.cos(cam.theta));
+      camera.lookAt(0,0.32,0);renderer.render(scene,camera);requestAnimationFrame(tick);
+    })();
+    /* rotate */
+    let dragR=null;
+    renderer.domElement.style.touchAction="none";renderer.domElement.style.cursor="grab";
+    renderer.domElement.addEventListener("pointerdown",e=>{dragR={x:e.clientX,y:e.clientY};renderer.domElement.setPointerCapture(e.pointerId);});
+    renderer.domElement.addEventListener("pointermove",e=>{if(!dragR)return;
+      cam.theta-=(e.clientX-dragR.x)*0.0065;cam.phi=clampN(cam.phi-(e.clientY-dragR.y)*0.005,0.25,1.45);
+      dragR={x:e.clientX,y:e.clientY};});
+    const up=()=>dragR=null;
+    renderer.domElement.addEventListener("pointerup",up);renderer.domElement.addEventListener("pointercancel",up);
+    $("t1-zin").addEventListener("click",()=>cam.dist=clampN(cam.dist-0.55,2.6,7));
+    $("t1-zout").addEventListener("click",()=>cam.dist=clampN(cam.dist+0.55,2.6,7));
+    makeSeg($("t1-reg"),REGKEYS,regK,k=>{regK=k;refresh(true);});
+    $("t1-mode").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+      $("t1-mode").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+      mode=b.dataset.v;refresh(true);
+    }));
+    mapHandlers();
+    buildSurface();refresh(false);
+  }
+  return {ensure};
+})();
+
+/* ═══════════════════ TASK 2 — theorem live ═══════════════════ */
+const T2=(()=>{
+  let regK="kl", alpha=1.0, gamma=0.9, eps=0.2;
+  let rewards=newRewards();
+  let pis=Array.from({length:L},()=>Array.from({length:SN},randPi));
+  let sel={type:"edge",l:0,s:1,a:0}, hover=null;
+  let root={l:0,s:1,a:0};
+  let samples=[], lastPath=null, sol=null;
+  const MAXN=5000;
+  const COLX=[56,180,304,428,540], ROWY=[54,126,198];
+
+  function recompute(resetSamples){
+    sol=solveDP(regK,rewards,pis,alpha,gamma,eps);
+    if(resetSamples){samples=[];lastPath=null;}
+    renderAll();
+  }
+  function sampleTraj(){
+    const{l:l0,s:s0,a:a0}=root;
+    const path=[{l:l0,s:s0}];
+    if(l0===L-1)return{G:0,path};
+    let s=sampleCat(transP(a0,eps)),G=0,k=1;
+    for(let l=l0+1;l<L;l++){
+      G+=Math.pow(gamma,k)*alpha*sol.B[l][s];path.push({l,s});
+      if(l<L-1){const a=sampleCat(pis[l][s]);s=sampleCat(transP(a,eps));}
+      k++;
+    }
+    return{G,path};
+  }
+  function draw(n){
+    const room=MAXN-samples.length;if(room<=0)return;
+    const m=Math.min(n,room);let last=null;
+    for(let i=0;i<m;i++){last=sampleTraj();samples.push(last.G);}
+    lastPath=last.path;renderMC();renderMap();
+  }
+
+  function renderMap(){
+    const svg=$("t2-map");svg.innerHTML="";
+    const hN=hover&&hover.type==="node"?hover:(sel&&sel.type==="node"?sel:null);
+    const hE=hover&&hover.type==="edge"?hover:(sel&&sel.type==="edge"?sel:null);
+    let transHi=null;
+    if(hE&&hE.l<L-1)transHi={layer:hE.l+1,probs:transP(hE.a,eps)};
+    /* edges */
+    for(let l=0;l<L;l++)for(let s=0;s<SN;s++)for(let a=0;a<3;a++){
+      const x1=COLX[l],y1=ROWY[s],x2=COLX[l+1],y2=ROWY[a];
+      const isSel=sel&&sel.type==="edge"&&sel.l===l&&sel.s===s&&sel.a===a;
+      const isHov=hover&&hover.type==="edge"&&hover.l===l&&hover.s===s&&hover.a===a;
+      const fromHi=hN&&hN.l===l&&hN.s===s;
+      let stroke="#6a6378",width=1.1,op=0.16;
+      if(fromHi){stroke="#5bc8d6";width=1+10*pis[l][s][a];op=0.85;}
+      if(isSel||isHov){stroke="#d9a441";width=Math.max(width,3);op=1;}
+      svg.appendChild(el("line",{x1,y1,x2,y2,stroke,"stroke-width":width,opacity:op,"stroke-linecap":"round"}));
+      const hit=el("line",{x1,y1,x2,y2,stroke:"transparent","stroke-width":13,style:"cursor:pointer"});
+      hit.addEventListener("click",()=>{sel={type:"edge",l,s,a};root={l,s,a};samples=[];lastPath=null;renderAll();});
+      hit.addEventListener("mouseenter",()=>{hover={type:"edge",l,s,a};renderMap();});
+      hit.addEventListener("mouseleave",()=>{hover=null;renderMap();});
+      svg.appendChild(hit);
+    }
+    /* trajectory arc */
+    if(lastPath&&lastPath.length>1){
+      const pts=lastPath.map(({l,s})=>[COLX[l],ROWY[s]]);
+      let d=`M${pts[0][0]},${pts[0][1]}`;
+      for(let i=1;i<pts.length;i++){
+        const[x1,y1]=pts[i-1],[x2,y2]=pts[i];
+        const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
+        d+=` Q${(x1+x2)/2+(-dy/len)*16},${(y1+y2)/2+(dx/len)*16} ${x2},${y2}`;
+      }
+      svg.appendChild(el("path",{d,fill:"none",stroke:"#e84393","stroke-width":2.6,opacity:0.95,"stroke-linecap":"round","stroke-linejoin":"round"}));
+      lastPath.forEach(({l,s})=>svg.appendChild(el("circle",{cx:COLX[l],cy:ROWY[s],r:4.2,fill:"#e84393",stroke:"#13101a","stroke-width":1.4})));
+      const t=el("text",{x:COLX[lastPath[0].l]+4,y:ROWY[lastPath[0].s]-16,fill:"#e84393","font-size":9.5},"마지막 τ");t.setAttribute("class","math");svg.appendChild(t);
+    }
+    /* nodes */
+    for(let l=0;l<L;l++)for(let s=0;s<SN;s++){
+      const x=COLX[l],y=ROWY[s];
+      const isSel=sel&&sel.type==="node"&&sel.l===l&&sel.s===s;
+      const inT=transHi&&transHi.layer===l;
+      const tOp=inT?0.18+0.82*(transHi.probs[s]/Math.max(...transHi.probs)):1;
+      if(inT)svg.appendChild(el("circle",{cx:x,cy:y,r:15,fill:"#d9a441",opacity:0.3*tOp+0.04}));
+      const c=el("circle",{cx:x,cy:y,r:11,fill:isSel?"#234a52":"#262130",stroke:isSel?"#5bc8d6":"#2c2738","stroke-width":isSel?2.2:1.5,opacity:inT?0.35+0.65*tOp:1,style:"cursor:pointer"});
+      c.addEventListener("click",()=>{sel={type:"node",l,s};renderAll();});
+      c.addEventListener("mouseenter",()=>{hover={type:"node",l,s};renderMap();});
+      c.addEventListener("mouseleave",()=>{hover=null;renderMap();});
+      svg.appendChild(c);
+      if(inT){const t=el("text",{x,y:y+3.5,fill:"#d9a441","font-size":8.5,"text-anchor":"middle","pointer-events":"none"},(transHi.probs[s]*100).toFixed(0)+"%");t.setAttribute("class","mono");svg.appendChild(t);}
+    }
+    /* terminal + labels */
+    ROWY.forEach((y)=>{
+      svg.appendChild(el("rect",{x:COLX[4]-7,y:y-7,width:14,height:14,rx:3,fill:"#262130",stroke:"#2c2738"}));
+      const t=el("text",{x:COLX[4],y:y+3.5,fill:"#6a6378","font-size":9,"text-anchor":"middle"},"⊥");t.setAttribute("class","math");svg.appendChild(t);
+    });
+    COLX.slice(0,4).forEach((x,l)=>{const t=el("text",{x,y:238,fill:"#6a6378","font-size":10,"text-anchor":"middle"},"l="+l);t.setAttribute("class","math");svg.appendChild(t);});
+    const tT=el("text",{x:COLX[4],y:238,fill:"#6a6378","font-size":10,"text-anchor":"middle"},"T");tT.setAttribute("class","math");svg.appendChild(tT);
+    svg.appendChild(el("text",{x:8,y:16,fill:"#6a6378","font-size":9.5},"node: π 굵기 · edge: 전이 분포 · 클릭으로 선택"));
+  }
+
+  function renderInfo(){
+    const box=$("t2-info");
+    if(sel&&sel.type==="edge"){
+      const{l,s,a}=sel;const gap=sol.Qs[l][s][a]-sol.Qp[l][s][a];
+      box.innerHTML=`<div class="card">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
+          <span class="math" style="font-size:14px;color:var(--gold)">edge · (l=${l}, s${s}) —a${"₁₂₃"[a]}→ ${l<L-1?("s"+a):"⊥"}</span>
+          <span style="font-size:10px;color:var(--faint)">이 edge가 MC root</span>
+        </div>
+        <div class="sl"><div class="lab"><span class="math">r(s,a) 보상</span><span class="mono" id="t2-rv">${rewards[l][s][a].toFixed(2)}</span></div>
+          <input type="range" id="t2-rs" min="-1" max="1" step="0.01" value="${rewards[l][s][a]}" style="accent-color:var(--gold)"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <div class="mini" style="flex:1"><div class="math" style="font-size:11px;color:var(--star)">Q*(s,a)</div><div class="mono" style="font-size:15px">${sol.Qs[l][s][a].toFixed(4)}</div></div>
+          <div class="mini" style="flex:1"><div class="math" style="font-size:11px;color:var(--pi)">Q^π(s,a)</div><div class="mono" style="font-size:15px">${sol.Qp[l][s][a].toFixed(4)}</div></div>
+          <div class="mini" style="flex:1"><div class="math" style="font-size:11px;color:var(--gold)">gap (좌변)</div><div class="mono" style="font-size:15px">${gap.toFixed(4)}</div></div>
+        </div></div>`;
+      $("t2-rs").addEventListener("input",e=>{
+        rewards[l][s][a]=parseFloat(e.target.value);
+        $("t2-rv").textContent=rewards[l][s][a].toFixed(2);
+        rewards=rewards.map(x=>x); recompute(true);
+      });
+    }else if(sel&&sel.type==="node"){
+      const{l,s}=sel;
+      box.innerHTML=`<div class="card">
+        <div class="math" style="font-size:14px;color:var(--pi);margin-bottom:8px">state · (l=${l}, s${s}) — π는 직접, π*는 보상·α로부터 계산</div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:0 0 52%"><svg id="t2-tri" viewBox="0 0 190 170" style="width:100%;background:#221c30;border-radius:10px;border:1px solid var(--line);touch-action:none"></svg></div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;justify-content:center">
+            <div class="mono" style="font-size:11px;color:var(--pi)" id="t2-pv"></div>
+            <div class="mono" style="font-size:11px;color:var(--star)" id="t2-psv"></div>
+            <div class="mini" style="margin-top:4px"><div class="math" style="font-size:11px;color:var(--star)">B_Ω(π‖π*)</div><div class="mono" style="font-size:15px" id="t2-bv"></div></div>
+          </div></div></div>`;
+      drawTri(l,s);
+    }else box.innerHTML="";
+  }
+  function drawTri(l,s){
+    const svg=$("t2-tri");if(!svg)return;svg.innerHTML="";
+    const W=190,H=170,VA=[W/2,14],VB=[16,H-14],VC=[W-16,H-14];
+    const b2=v=>[v[0]*VA[0]+v[1]*VB[0]+v[2]*VC[0], v[0]*VA[1]+v[1]*VB[1]+v[2]*VC[1]];
+    svg.appendChild(el("polygon",{points:`${VA} ${VB} ${VC}`,fill:"none",stroke:"#2c2738","stroke-width":1.3}));
+    [["a₁",VA[0],VA[1]-4],["a₂",VB[0]-2,VB[1]+11],["a₃",VC[0]+2,VC[1]+11]].forEach(([t,x,y])=>{
+      const tx=el("text",{x,y,fill:"#6a6378","font-size":10,"text-anchor":"middle"},t);tx.setAttribute("class","math");svg.appendChild(tx);});
+    const ps=sol.pistar[l][s],p=pis[l][s];
+    const[qx,qy]=b2(ps),[px,py]=b2(p);
+    svg.appendChild(el("line",{x1:px,y1:py,x2:qx,y2:qy,stroke:"#ece7df","stroke-width":0.8,"stroke-dasharray":"3 3",opacity:0.4}));
+    svg.appendChild(el("circle",{cx:qx,cy:qy,r:7.5,fill:"#e84393",stroke:"#13101a","stroke-width":2}));
+    svg.appendChild(el("circle",{cx:px,cy:py,r:7.5,fill:"#5bc8d6",stroke:"#13101a","stroke-width":2}));
+    $("t2-pv").textContent="π = ("+p.map(x=>x.toFixed(2)).join(", ")+")";
+    $("t2-psv").textContent="π* = ("+ps.map(x=>x.toFixed(2)).join(", ")+")";
+    $("t2-bv").textContent=sol.B[l][s].toFixed(4);
+    const xy2b=(x,y)=>{const d=(VB[1]-VC[1])*(VA[0]-VC[0])+(VC[0]-VB[0])*(VA[1]-VC[1]);
+      const l1=((VB[1]-VC[1])*(x-VC[0])+(VC[0]-VB[0])*(y-VC[1]))/d;
+      const l2=((VC[1]-VA[1])*(x-VC[0])+(VA[0]-VC[0])*(y-VC[1]))/d;
+      return normS([l1,l2,1-l1-l2]);};
+    let drag=false;
+    const ev=e=>{const r=svg.getBoundingClientRect();return xy2b((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H);};
+    svg.onpointerdown=e=>{drag=true;svg.setPointerCapture(e.pointerId);pis[l][s]=ev(e);pis=pis.map(x=>x);recompute(true);};
+    svg.onpointermove=e=>{if(!drag)return;pis[l][s]=ev(e);pis=pis.map(x=>x);recompute(true);};
+    svg.onpointerup=svg.onpointercancel=()=>drag=false;
+  }
+
+  function renderMC(){
+    const N=samples.length;
+    const exact=sol.Qs[root.l][root.s][root.a]-sol.Qp[root.l][root.s][root.a];
+    const mean=N?samples.reduce((a,b)=>a+b,0)/N:0;
+    $("t2-exact-lab").textContent=`좌변 · DP 정확값 @ root (${root.l},s${root.s},a${"₁₂₃"[root.a]})`;
+    $("t2-exact").textContent=exact.toFixed(5);
+    $("t2-mc-lab").textContent=`우변 · MC 추정 (N=${N}${N>=MAXN?" · max":""})`;
+    $("t2-mc").textContent=N?mean.toFixed(5):"—";
+    $("t2-err").textContent=N?`|오차| = ${Math.abs(mean-exact).toFixed(5)} · 마지막 τ의 G = ${samples[N-1].toFixed(4)}`:"";
+    /* convergence */
+    const svg=$("t2-conv");svg.innerHTML="";
+    const W=560,Hh=132,mL=8,mR=8,mT=12,mB=8;
+    if(!N){
+      const t=el("text",{x:W/2,y:Hh/2+4,fill:"#6a6378","font-size":12,"text-anchor":"middle"},"Sample rollouts to see the running mean Ḡ_N converge");svg.appendChild(t);return;
+    }
+    const means=[];let sAcc=0;
+    for(let i=0;i<N;i++){sAcc+=samples[i];means.push(sAcc/(i+1));}
+    let lo=Math.min(...means,exact),hi=Math.max(...means,exact);
+    const pad=Math.max((hi-lo)*0.2,1e-4);lo-=pad;hi+=pad;
+    const X=i=>mL+(W-mL-mR)*i/Math.max(N-1,1);
+    const Y=v=>mT+(1-(v-lo)/(hi-lo))*(Hh-mT-mB);
+    svg.appendChild(el("line",{x1:mL,y1:Y(exact),x2:W-mR,y2:Y(exact),stroke:"#d9a441","stroke-width":1.4,"stroke-dasharray":"5 4"}));
+    const tl=el("text",{x:W-mR-2,y:Y(exact)-5,fill:"#d9a441","font-size":10,"text-anchor":"end"},"좌변 Q*−Q^π (DP)");tl.setAttribute("class","math");svg.appendChild(tl);
+    const step=Math.max(1,Math.floor(N/420));const pts=[];
+    for(let i=0;i<N;i+=step)pts.push(X(i).toFixed(1)+","+Y(means[i]).toFixed(1));
+    pts.push(X(N-1).toFixed(1)+","+Y(means[N-1]).toFixed(1));
+    svg.appendChild(el("polyline",{points:pts.join(" "),fill:"none",stroke:"#5bc8d6","stroke-width":1.8}));
+    const t2l=el("text",{x:mL+2,y:15,fill:"#5bc8d6","font-size":10},"우변 MC: Ḡ_N");t2l.setAttribute("class","math");svg.appendChild(t2l);
+  }
+  function renderWarn(){
+    $("t2-warn").innerHTML=(sol.boundary&&!REG[regK].essSmooth)
+      ?`<div class="warn">⚠ 일부 상태에서 π*가 simplex 경계에 닿았다. ${REG[regK].label}은 essential smoothness가 없어 등식이 ≥로 약화될 수 있다 — Lemma 1이 interior π*를 가정하는 이유. MC 평균이 DP 값보다 작게 수렴할 수 있음.</div>`:"";
+  }
+  function renderAll(){renderMap();renderInfo();renderWarn();renderMC();}
+
+  /* controls */
+  makeSeg($("t2-reg"),REGKEYS,regK,k=>{regK=k;recompute(true);});
+  $("t2-alpha").addEventListener("input",e=>{alpha=parseFloat(e.target.value);$("t2-alpha-v").textContent=alpha.toFixed(2);recompute(true);});
+  $("t2-gamma").addEventListener("input",e=>{gamma=parseFloat(e.target.value);$("t2-gamma-v").textContent=gamma.toFixed(2);recompute(true);});
+  $("t2-eps").addEventListener("input",e=>{eps=parseFloat(e.target.value);$("t2-eps-v").textContent=eps.toFixed(2);recompute(true);});
+  $("t2-randr").addEventListener("click",()=>{rewards=newRewards();recompute(true);});
+  $("t2-snap").addEventListener("click",()=>{pis=sol.pistar.map(Ls=>Ls.map(p=>normS([...p])));recompute(true);});
+  $("t2-shuf").addEventListener("click",()=>{pis=Array.from({length:L},()=>Array.from({length:SN},randPi));recompute(true);});
+  $("t2-s1").addEventListener("click",()=>draw(1));
+  $("t2-s100").addEventListener("click",()=>draw(100));
+  $("t2-s1000").addEventListener("click",()=>draw(1000));
+  $("t2-reset").addEventListener("click",()=>{samples=[];lastPath=null;renderMC();renderMap();});
+  recompute(true);
+  return {};
+})();
+
+/* ═══════════════════ TASK 3 — off-policy admissibility experiment ═══════════════════ */
+const T3=(()=>{
+  const GAMMA=0.9, STEPS=300, LR=0.08;
+  let nmc=2, npairs=600, nseeds=3, targetPeak=0.6, EPS=0.2, BATCH=16, gradMode="A", offPolicy=false, DEPTH=4;
+  let lastRun=null;
+  let rewards=newRewards(DEPTH);
+  let dataset=null;   // shared preference pairs
+  let alphas=null;    // calibrated α per divergence (peak-matched)
+  let running=false;
+
+  const uniformPis=()=>Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[1/3,1/3,1/3]));
+
+  /* ── step 1–2: α calibration — match mean over states of max_a π*(a|s) ── */
+  function peakiness(rk,al){
+    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH);
+    let m=0;for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)m+=Math.max(...sol.pistar[l][s]);
+    return m/(DEPTH*SN);
+  }
+  function calibrate(){
+    alphas={};
+    REGKEYS.forEach(rk=>{
+      let lo=0.02,hi=40; // peakiness monotone↓ in α: lo side too peaked, hi side too soft
+      for(let i=0;i<55;i++){
+        const mid=Math.sqrt(lo*hi);
+        if(peakiness(rk,mid)>targetPeak)lo=mid;else hi=mid;
+      }
+      alphas[rk]=Math.sqrt(lo*hi);
+    });
+    renderChips();
+    drawCStats();
+    drawSweep();
+    drawMDP();
+    drawCProbe();
+  }
+  function renderChips(){
+    $("t3-chips").innerHTML=REGKEYS.map(rk=>
+      `<span class="mono" style="color:${REG[rk].color}">${REG[rk].label} α=${alphas[rk].toFixed(2)} <span style="color:var(--faint)">(peak ${peakiness(rk,alphas[rk]).toFixed(2)})</span></span>`
+    ).join(' <span style="color:var(--faint)">·</span> ');
+  }
+
+  /* ── C_Ω statistics at calibrated π*_Ω: π-dependence (state spread) & MC noise ── */
+  function cStats(rk){
+    const R=REG[rk];
+    const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH);
+    const Cs=[],Sds=[];
+    for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++){
+      const p=sol.pistar[l][s].map(x=>Math.max(x,1e-9));
+      if(R.constC){Cs.push(1);Sds.push(0);continue;}
+      let E=0,E2=0,Euni=0;
+      if(rk==="euc"){
+        for(let a=0;a<3;a++){const x=p[a]-1/3;E+=p[a]*x;E2+=p[a]*x*x;Euni+=(1/3)*x;}
+        Cs.push(E-R.omega(p));
+      }else{
+        for(let a=0;a<3;a++){const ph=R.Phi(3*p[a]);E+=p[a]*ph;E2+=p[a]*ph*ph;Euni+=(1/3)*ph;}
+        Cs.push(E);
+      }
+      /* off-policy: data action ~ uniform behavior; bias = |E_uniform[Φ] − E_π*[Φ]| */
+      Sds.push(offPolicy ? Math.abs(Euni-E) : Math.sqrt(Math.max(E2-E*E,0)));
+    }
+    const mu=Cs.reduce((a,b)=>a+b,0)/Cs.length;
+    return{
+      meanC:mu,
+      stateStd:Math.sqrt(Cs.reduce((s,x)=>s+(x-mu)**2,0)/Cs.length),
+      mcSd:Sds.reduce((a,b)=>a+b,0)/Sds.length
+    };
+  }
+  function drawCStats(){
+    const svg=$("t3-cstats");if(!svg)return;svg.innerHTML="";
+    const W=560,H=190,mL=46,mR=10,mT=18,mB=44;
+    const stats=REGKEYS.map(rk=>({rk,...cStats(rk)}));
+    const FLOOR=1e-4;
+    const CEIL=Math.max(1e-2,...stats.flatMap(s=>[s.stateStd,s.mcSd]))*1.8;
+    const loL=Math.log10(FLOOR),hiL=Math.log10(CEIL);
+    const lY=v=>mT+(1-(Math.log10(Math.max(v,FLOOR))-loL)/(hiL-loL))*(H-mT-mB);
+    for(let d=Math.ceil(loL);d<=Math.floor(hiL);d++){
+      const y=lY(Math.pow(10,d));
+      svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+      const t=el("text",{x:mL-4,y:y+3,fill:"#6a6378","font-size":8.5,"text-anchor":"end"},"1e"+d);
+      t.setAttribute("class","mono");svg.appendChild(t);
+    }
+    const base=lY(FLOOR);
+    svg.appendChild(el("line",{x1:mL,y1:base,x2:W-mR,y2:base,stroke:"#2c2738"}));
+    const groupW=(W-mL-mR)/stats.length;
+    stats.forEach((st,i)=>{
+      const x0=mL+i*groupW,bw=Math.min(17,(groupW-22)/2);
+      const bar=(x,v,op,dash)=>{
+        if(v<=1e-12){
+          const t=el("text",{x:x+bw/2,y:base-4,fill:REG[st.rk].color,"font-size":9,"text-anchor":"middle"},"0");
+          t.setAttribute("class","mono");svg.appendChild(t);return;
+        }
+        const r=el("rect",{x,y:lY(v),width:bw,height:Math.max(base-lY(v),0),fill:REG[st.rk].color,opacity:op,rx:2.5});
+        if(dash){r.setAttribute("stroke","#ece7df");r.setAttribute("stroke-dasharray","2 2");r.setAttribute("stroke-width","0.7");}
+        svg.appendChild(r);
+      };
+      bar(x0+8,st.stateStd,0.9,false);
+      bar(x0+8+bw+4,st.mcSd,0.4,true);
+      svg.appendChild(el("text",{x:x0+groupW/2,y:H-26,fill:REG[st.rk].color,"font-size":9.5,"text-anchor":"middle"},REG[st.rk].shortLabel));
+      const t2=el("text",{x:x0+groupW/2,y:H-14,fill:"#6a6378","font-size":8,"text-anchor":"middle"},"C̄="+st.meanC.toFixed(2));
+      t2.setAttribute("class","mono");svg.appendChild(t2);
+    });
+  }
+
+  /* ── shared preference data: uniform behavior policy (off-policy) ── */
+  function rollout(){
+    let s=Math.floor(Math.random()*SN);
+    const trans=[];let R=0;
+    for(let l=0;l<DEPTH;l++){
+      const a=Math.floor(Math.random()*3);
+      R+=Math.pow(GAMMA,l)*rewards[l][s][a];
+      const sn=l<DEPTH-1?sampleCat(transP(a,EPS)):-1;
+      trans.push({l,s,a,sn});
+      s=sn;
+    }
+    return{trans,R};
+  }
+  function makeDataset(){
+    dataset=[];
+    for(let i=0;i<10000;i++){
+      const t1=rollout(),t2=rollout();
+      const pw=1/(1+Math.exp(-(t1.R-t2.R)));
+      dataset.push(Math.random()<pw?{w:t1.trans,l:t2.trans}:{w:t2.trans,l:t1.trans});
+    }
+  }
+
+  /* ── step 3: DPO training for one (regK, seed, nmc) at calibrated α ── */
+  function trainOne(regK, nmcUse, data){
+    const R=REG[regK], aReg=alphas[regK];
+    const sol=solveDP(regK,rewards,uniformPis(),aReg,GAMMA,EPS,DEPTH);
+    const tgt=sol.pistar;
+    const th=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[rnd(-0.05,0.05),rnd(-0.05,0.05),rnd(-0.05,0.05)]));
+    const m=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
+    const v=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
+    const polAt=(l,s)=>softmax3(th[l][s],1);
+    const gap=()=>{
+      let g=0;
+      for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++){
+        const p=polAt(l,s),q=tgt[l][s];
+        g+=0.5*(Math.abs(p[0]-q[0])+Math.abs(p[1]-q[1])+Math.abs(p[2]-q[2]));
+      }
+      return g/(DEPTH*SN);
+    };
+    /* inner term C_Ω(s'). on-policy: draw n_mc actions from π(·|s').
+       off-policy (extreme): use the single data-recorded next action a'_data (no resampling). */
+    const drawInner=(pol,aData)=>{
+      if(R.constC)return{C:0,as:[]}; // KL: C_Ω ≡ const → no estimation, no noise, mode-invariant
+      if(offPolicy){
+        const aj=aData;
+        if(aj==null)return{C:0,as:[]}; // terminal: no next action recorded
+        const phi = regK==="euc" ? (pol[aj]-1/3) : R.Phi(3*Math.max(pol[aj],1e-12));
+        return{C: regK==="euc" ? phi-R.omega(pol) : phi, as:[aj]};
+      }
+      const as=[];let e=0;
+      if(regK==="euc"){for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=pol[aj]-1/3;}return{C:e/nmcUse-R.omega(pol),as};}
+      for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=R.Phi(3*Math.max(pol[aj],1e-12));}
+      return{C:e/nmcUse,as};
+    };
+    /* score a trajectory: deterministic part (exact) + inner part; cache inner samples.
+       aData for state s' = the action taken at s' in this same trajectory (next transition's a). */
+    const scoreTraj=(trans,pols)=>{
+      let sc=0;const inner=[];
+      for(let i=0;i<trans.length;i++){
+        const{l,s,a,sn}=trans[i];
+        sc+=aReg*R.gradDPO(pols[l][s])[a];
+        if(sn>=0){
+          const aData=(i+1<trans.length)?trans[i+1].a:null;
+          const di=drawInner(pols[l+1][sn], aData);
+          sc+=aReg*di.C;
+          inner.push({sn,l,as:di.as});
+        }
+      }
+      return{sc,inner};
+    };
+    const curve=[];let t=0;
+    for(let step=0;step<STEPS;step++){
+      const pols=Array.from({length:DEPTH},(_,l)=>Array.from({length:SN},(_,s)=>polAt(l,s)));
+      const grad=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
+      for(let b=0;b<BATCH;b++){
+        const pair=data[Math.floor(Math.random()*data.length)];
+        const Sw=scoreTraj(pair.w,pols), Sl=scoreTraj(pair.l,pols);
+        const d=Sw.sc-Sl.sc;
+        const coef=-1/(1+Math.exp(d)); // dℓ/dd = −σ(−d); carries the MC noise of d
+        /* outer gradient: through the chosen-action implicit reward */
+        const accOuter=(trans,sign)=>{
+          for(const{l,s,a}of trans){
+            const pol=pols[l][s];
+            for(let bb=0;bb<3;bb++)grad[l][s][bb]+=coef*sign*aReg*R.dGdTheta(pol,a,bb);
+          }
+        };
+        accOuter(pair.w,+1);accOuter(pair.l,-1);
+        /* A-direction: gradient through the inner term C_Ω(s'), via the SAME a' samples */
+        if(gradMode==="A"&&!R.constC){
+          const accInner=(inner,sign)=>{
+            for(const{sn,l,as}of inner){
+              const pol=pols[l+1][sn];
+              const nz=as.length||1;
+              if(regK==="euc"){
+                for(const aj of as)for(let bb=0;bb<3;bb++)
+                  grad[l+1][sn][bb]+=coef*sign*aReg*(1/nz)*pol[aj]*((aj===bb?1:0)-pol[bb]);
+                for(let bb=0;bb<3;bb++){let dO=0;for(let a2=0;a2<3;a2++)dO+=(pol[a2]-1/3)*pol[a2]*((a2===bb?1:0)-pol[bb]);
+                  grad[l+1][sn][bb]+=coef*sign*aReg*(-dO);}
+              }else if(R.dPhi){
+                for(const aj of as){const u=3*Math.max(pol[aj],1e-12);const w=R.dPhi(u)*3/nz;
+                  for(let bb=0;bb<3;bb++)grad[l+1][sn][bb]+=coef*sign*aReg*w*pol[aj]*((aj===bb?1:0)-pol[bb]);}
+              }
+            }
+          };
+          accInner(Sw.inner,+1);accInner(Sl.inner,-1);
+        }
+      }
+      t++;
+      for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)for(let a=0;a<3;a++){
+        const g=grad[l][s][a]/BATCH;
+        m[l][s][a]=0.9*m[l][s][a]+0.1*g;
+        v[l][s][a]=0.999*v[l][s][a]+0.001*g*g;
+        const mh=m[l][s][a]/(1-Math.pow(0.9,t)),vh=v[l][s][a]/(1-Math.pow(0.999,t));
+        th[l][s][a]-=LR*mh/(Math.sqrt(vh)+1e-8);
+      }
+      if(step%15===0||step===STEPS-1)curve.push(gap());
+    }
+    const pol=Array.from({length:DEPTH},(_,l)=>Array.from({length:SN},(_,s)=>polAt(l,s)));
+    return{curve,final:gap(),pol};
+  }
+
+  /* async runner */
+  function runAll(nmcList, done){
+    running=true;$("t3-run").disabled=true;$("t3-sweep").disabled=true;
+    const data=dataset.slice(0,npairs);
+    const jobs=[];
+    for(const nm of nmcList)for(const rk of REGKEYS)for(let sd=0;sd<nseeds;sd++)jobs.push({nm,rk,sd});
+    const out={};let ji=0;
+    function tick(){
+      if(ji>=jobs.length){running=false;$("t3-run").disabled=false;$("t3-sweep").disabled=false;
+        $("t3-prog").style.width="100%";done(out);return;}
+      const{nm,rk}=jobs[ji];
+      const res=trainOne(rk,nm,data);
+      out[nm]=out[nm]||{};out[nm][rk]=out[nm][rk]||{curves:[],finals:[],pols:[]};
+      out[nm][rk].curves.push(res.curve);out[nm][rk].finals.push(res.final);out[nm][rk].pols.push(res.pol);
+      ji++;
+      $("t3-prog").style.width=((ji/jobs.length)*100).toFixed(1)+"%";
+      $("t3-status").textContent=`Training — ${REG[rk].label} (α=${alphas[rk].toFixed(2)}) · n_mc=${nm} · job ${ji}/${jobs.length}`;
+      setTimeout(tick,0);
+    }
+    $("t3-prog").style.width="0%";tick();
+  }
+
+  function meanArr(arrs){
+    const n=Math.min(...arrs.map(a=>a.length));
+    return Array.from({length:n},(_,i)=>arrs.reduce((s,a)=>s+a[i],0)/arrs.length);
+  }
+  const meanStd=xs=>{
+    const mu=xs.reduce((a,b)=>a+b,0)/xs.length;
+    const sd=Math.sqrt(xs.reduce((s,x)=>s+(x-mu)**2,0)/Math.max(xs.length-1,1));
+    return{mu,sd};
+  };
+
+  function drawCurves(res){
+    const svg=$("t3-curves");svg.innerHTML="";
+    const W=560,H=180,mL=36,mR=10,mT=12,mB=24;
+    let hi=1e-9;
+    const series=REGKEYS.map(rk=>{const m=meanArr(res[rk].curves);hi=Math.max(hi,...m);return{rk,m};});
+    hi*=1.08;
+    const X=i=>mL+(W-mL-mR)*i/Math.max(series[0].m.length-1,1);
+    const Y=v=>mT+(1-v/hi)*(H-mT-mB);
+    svg.appendChild(el("line",{x1:mL,y1:Y(0),x2:W-mR,y2:Y(0),stroke:"#2c2738"}));
+    [0.25,0.5,0.75,1].forEach(f=>{
+      svg.appendChild(el("line",{x1:mL,y1:Y(hi*f/1.08),x2:W-mR,y2:Y(hi*f/1.08),stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+    });
+    series.forEach(({rk,m})=>{
+      const pts=m.map((v,i)=>X(i).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
+      svg.appendChild(el("polyline",{points:pts,fill:"none",stroke:REG[rk].color,"stroke-width":rk==="kl"?2.6:1.7,opacity:rk==="kl"?1:0.9}));
+    });
+    REGKEYS.forEach((rk,i)=>{
+      svg.appendChild(el("circle",{cx:mL+8+i*74,cy:H-8,r:4,fill:REG[rk].color}));
+      svg.appendChild(el("text",{x:mL+16+i*74,y:H-4.5,fill:"#9b93a8","font-size":9.5},REG[rk].shortLabel));
+    });
+    svg.appendChild(el("text",{x:10,y:mT+8,fill:"#6a6378","font-size":9},"gap"));
+  }
+
+  function drawBars(byNmc,title){
+    $("t3-bar-title").textContent=title;
+    const svg=$("t3-bars");svg.innerHTML="";
+    const W=560,H=190,mL=36,mR=10,mT=14,mB=30;
+    const nms=Object.keys(byNmc).map(Number).sort((a,b)=>a-b);
+    let hi=1e-9;
+    nms.forEach(nm=>REGKEYS.forEach(rk=>{const{mu,sd}=meanStd(byNmc[nm][rk].finals);hi=Math.max(hi,mu+sd);}));
+    hi*=1.12;
+    const Y=v=>mT+(1-v/hi)*(H-mT-mB);
+    svg.appendChild(el("line",{x1:mL,y1:Y(0),x2:W-mR,y2:Y(0),stroke:"#2c2738"}));
+    const groupW=(W-mL-mR)/nms.length;
+    nms.forEach((nm,gi)=>{
+      const x0=mL+gi*groupW;
+      const step=(groupW-24)/REGKEYS.length;
+      const bw=Math.max(7,step-4);
+      REGKEYS.forEach((rk,ri)=>{
+        const{mu,sd}=meanStd(byNmc[nm][rk].finals);
+        const x=x0+12+ri*step;
+        svg.appendChild(el("rect",{x,y:Y(mu),width:bw,height:Math.max(Y(0)-Y(mu),0),fill:REG[rk].color,opacity:0.85,rx:3}));
+        svg.appendChild(el("line",{x1:x+bw/2,y1:Y(mu-sd),x2:x+bw/2,y2:Y(mu+sd),stroke:"#ece7df","stroke-width":1.2,opacity:0.8}));
+        svg.appendChild(el("line",{x1:x+bw/2-3,y1:Y(mu+sd),x2:x+bw/2+3,y2:Y(mu+sd),stroke:"#ece7df","stroke-width":1.2,opacity:0.8}));
+        svg.appendChild(el("line",{x1:x+bw/2-3,y1:Y(mu-sd),x2:x+bw/2+3,y2:Y(mu-sd),stroke:"#ece7df","stroke-width":1.2,opacity:0.8}));
+      });
+      const t=el("text",{x:x0+groupW/2,y:H-10,fill:"#9b93a8","font-size":10.5,"text-anchor":"middle"},"n_mc = "+nm);
+      t.setAttribute("class","mono");svg.appendChild(t);
+    });
+    svg.appendChild(el("text",{x:8,y:mT+8,fill:"#6a6378","font-size":9},"final gap"));
+  }
+
+  /* ── MDP instance visualization (depth-aware, read-only) ── */
+  function drawMDP(){
+    const svg=$("t3-mdp");if(!svg)return;svg.innerHTML="";
+    const W=560,Hh=200,mL=40,mR=20,mT=24,mB=26;
+    const cols=DEPTH+1; // decision layers + terminal
+    const colX=l=>mL+(W-mL-mR)*l/(cols-1);
+    const rowY=s=>mT+(Hh-mT-mB)*(SN===1?0.5:s/(SN-1));
+    /* transition edges (faint) + action-aim edges */
+    for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)for(let a=0;a<3;a++){
+      if(l===DEPTH-1)continue;
+      const probs=transP(a,EPS);
+      for(let s2=0;s2<SN;s2++){
+        if(probs[s2]<1e-6)continue;
+        svg.appendChild(el("line",{x1:colX(l),y1:rowY(s),x2:colX(l+1),y2:rowY(s2),
+          stroke:a===0?"#5bc8d6":a===1?"#e8a0c0":"#9b8fd0",
+          "stroke-width":0.5+2.2*probs[s2],opacity:0.16+0.25*probs[s2],"stroke-linecap":"round"}));
+      }
+    }
+    /* nodes */
+    for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++){
+      const x=colX(l),y=rowY(s);
+      const g=el("g",{style:"cursor:default"});
+      const c=el("circle",{cx:x,cy:y,r:9,fill:"#262130",stroke:"#3a3050","stroke-width":1.4});
+      g.appendChild(c);
+      g.appendChild(el("text",{x,y:y+3,fill:"#9b93a8","font-size":8,"text-anchor":"middle"},"s"+s));
+      /* hover → reward tooltip */
+      g.addEventListener("mouseenter",()=>{
+        c.setAttribute("stroke","#d9a441");c.setAttribute("stroke-width","2");
+        const r=rewards[l][s];
+        const tip=el("g",{id:"t3-mdp-tip","pointer-events":"none"});
+        const tx=x+(l>cols-3?-118:10),ty=y-30;
+        tip.appendChild(el("rect",{x:tx,y:ty,width:112,height:42,rx:6,fill:"#0f0c16",stroke:"#d9a441","stroke-width":1,opacity:0.96}));
+        const t1=el("text",{x:tx+8,y:ty+15,fill:"#d9a441","font-size":9.5},`l=${l}, s${s} rewards`);t1.setAttribute("class","mono");
+        const t2=el("text",{x:tx+8,y:ty+31,fill:"#ece7df","font-size":10},`a₁ ${r[0].toFixed(2)}  a₂ ${r[1].toFixed(2)}  a₃ ${r[2].toFixed(2)}`);t2.setAttribute("class","mono");
+        tip.appendChild(t1);tip.appendChild(t2);svg.appendChild(tip);
+      });
+      g.addEventListener("mouseleave",()=>{
+        c.setAttribute("stroke","#3a3050");c.setAttribute("stroke-width","1.4");
+        const tip=$("t3-mdp-tip");if(tip)tip.remove();
+      });
+      svg.appendChild(g);
+    }
+    /* terminal column */
+    for(let s=0;s<SN;s++){const x=colX(DEPTH),y=rowY(s);
+      svg.appendChild(el("rect",{x:x-6,y:y-6,width:12,height:12,rx:3,fill:"#262130",stroke:"#3a3050"}));
+      svg.appendChild(el("text",{x,y:y+3,fill:"#6a6378","font-size":8,"text-anchor":"middle"},"⊥"));}
+    /* layer labels */
+    for(let l=0;l<DEPTH;l++){const t=el("text",{x:colX(l),y:Hh-10,fill:"#6a6378","font-size":9,"text-anchor":"middle"},"l="+l);t.setAttribute("class","mono");svg.appendChild(t);}
+    const tT=el("text",{x:colX(DEPTH),y:Hh-10,fill:"#6a6378","font-size":9,"text-anchor":"middle"},"T");tT.setAttribute("class","mono");svg.appendChild(tT);
+    /* action color legend */
+    [["a₁","#5bc8d6"],["a₂","#e8a0c0"],["a₃","#9b8fd0"]].forEach(([lab,col],k)=>{
+      svg.appendChild(el("line",{x1:mL+k*60,y1:14,x2:mL+k*60+14,y2:14,stroke:col,"stroke-width":2}));
+      svg.appendChild(el("text",{x:mL+k*60+18,y:17,fill:"#9b93a8","font-size":9},lab));
+    });
+  }
+
+  /* ── c(s') admissibility probe: irreducible inner-term error from (s,a,s') alone vs ε ── */
+  let CVALS=[0.6,1.0,1.6], cShowMode="both";
+  function cViolation(eps){
+    const pa=[1/3,1/3,1/3];
+    const psp=[0,1,2].map(sp=>[0,1,2].reduce((acc,a)=>acc+pa[a]*transP(a,eps)[sp],0));
+    let V=0;
+    for(let sp=0;sp<SN;sp++){
+      const w=[0,1,2].map(a=>pa[a]*transP(a,eps)[sp]);const Z=w[0]+w[1]+w[2];
+      const post=w.map(x=>x/Z);
+      let E=0,E2=0;for(let a=0;a<SN;a++){E+=post[a]*CVALS[a];E2+=post[a]*CVALS[a]*CVALS[a];}
+      V+=psp[sp]*Math.max(E2-E*E,0);
+    }
+    return Math.sqrt(V);
+  }
+  function drawCProbe(){
+    const svg=$("t3-cprobe");if(!svg)return;svg.innerHTML="";
+    const W=560,H=230,mL=46,mR=14,mT=16,mB=46;
+    const epsG=[];for(let i=0;i<=30;i++)epsG.push(0.6*i/30);
+    const maxViol=Math.max(cViolation(0.6),0.05);
+    const hi=Math.max(0.45,maxViol*1.15);
+    const X=e=>mL+(e/0.6)*(W-mL-mR);
+    const Y=v=>mT+(1-v/hi)*(H-mT-mB);
+    for(const gl of [0,0.1,0.2,0.3,0.4]){svg.appendChild(el("line",{x1:mL,y1:Y(gl),x2:W-mR,y2:Y(gl),stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+      const t=el("text",{x:mL-5,y:Y(gl)+3,fill:"#6a6378","font-size":8.5,"text-anchor":"end"},gl.toFixed(1));t.setAttribute("class","mono");svg.appendChild(t);}
+    for(const e of [0,0.15,0.3,0.45,0.6]){const x=X(e);svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+      const t=el("text",{x,y:H-mB+13,fill:"#6a6378","font-size":9,"text-anchor":"middle"},e.toFixed(2));t.setAttribute("class","mono");svg.appendChild(t);}
+    const showState=cShowMode!=="action", showAction=cShowMode!=="state";
+    if(showState){
+      svg.appendChild(el("line",{x1:X(0),y1:Y(0),x2:X(0.6),y2:Y(0),stroke:"#58c08a","stroke-width":2.6}));
+    }
+    if(showAction){
+      const pts=epsG.map(e=>X(e).toFixed(1)+","+Y(cViolation(e)).toFixed(1));
+      svg.appendChild(el("polyline",{points:pts.join(" "),fill:"none",stroke:"#9b59d0","stroke-width":2.6}));
+    }
+    if(showState&&showAction){
+      svg.appendChild(el("circle",{cx:X(0),cy:Y(0),r:5,fill:"none",stroke:"#d9a441","stroke-width":1.4}));
+      svg.appendChild(el("text",{x:X(0)+8,y:Y(0)-8,fill:"#d9a441","font-size":9},"ε=0: modes coincide (admissible)"));
+    }
+    const ex=X(EPS);
+    svg.appendChild(el("line",{x1:ex,y1:mT,x2:ex,y2:H-mB,stroke:"#ece7df","stroke-width":1,"stroke-dasharray":"3 3",opacity:0.5}));
+    if(showState)svg.appendChild(el("circle",{cx:ex,cy:Y(0),r:3.5,fill:"#58c08a",stroke:"#13101a","stroke-width":1.4}));
+    if(showAction)svg.appendChild(el("circle",{cx:ex,cy:Y(cViolation(EPS)),r:3.5,fill:"#9b59d0",stroke:"#13101a","stroke-width":1.4}));
+    svg.appendChild(el("text",{x:ex,y:mT-3,fill:"#9b93a8","font-size":9,"text-anchor":"middle"},`ε=${EPS.toFixed(2)} · state 0.000 · action ${cViolation(EPS).toFixed(3)}`));
+    svg.appendChild(el("text",{x:(mL+W-mR)/2,y:H-6,fill:"#9b93a8","font-size":10,"text-anchor":"middle"},"transition noise ε"));
+    const yl=el("text",{x:12,y:mT+6,fill:"#6a6378","font-size":9},"violation");yl.setAttribute("class","math");svg.appendChild(yl);
+    if(showState){svg.appendChild(el("line",{x1:mL+8,y1:mT+8,x2:mL+24,y2:mT+8,stroke:"#58c08a","stroke-width":2.6}));
+      svg.appendChild(el("text",{x:mL+28,y:mT+11,fill:"#9b93a8","font-size":9.5},"state-indexed c(s′)"));}
+    if(showAction){svg.appendChild(el("line",{x1:mL+160,y1:mT+8,x2:mL+176,y2:mT+8,stroke:"#9b59d0","stroke-width":2.6}));
+      svg.appendChild(el("text",{x:mL+180,y:mT+11,fill:"#9b93a8","font-size":9.5},"action-indexed c(a′)"));}
+  }
+
+  function peakOf(rk,al){
+    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH);
+    let m=0;for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)m+=Math.max(...sol.pistar[l][s]);
+    return m/(DEPTH*SN);
+  }
+  function drawSweep(){
+    const svg=$("t3-sweep-plot");if(!svg)return;svg.innerHTML="";
+    const W=560,H=330,mL=44,mR=12,mT=14,mB=54;
+    const aLo=0.05,aHi=6,NA=44;
+    const alg=Math.log10(aLo),ahg=Math.log10(aHi);
+    const X=a=>mL+(Math.log10(a)-alg)/(ahg-alg)*(W-mL-mR);
+    const Y=p=>mT+(1-p)*(H-mT-mB);
+    /* grid */
+    for(let p=0;p<=1;p+=0.2){const y=Y(p);svg.appendChild(el("line",{x1:mL,y1:y,x2:W-mR,y2:y,stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+      const t=el("text",{x:mL-5,y:y+3,fill:"#6a6378","font-size":8.5,"text-anchor":"end"},p.toFixed(1));t.setAttribute("class","mono");svg.appendChild(t);}
+    for(let d=Math.ceil(alg);d<=Math.floor(ahg);d++){const x=X(Math.pow(10,d));svg.appendChild(el("line",{x1:x,y1:mT,x2:x,y2:H-mB,stroke:"#2c2738","stroke-width":0.5,"stroke-dasharray":"2 5"}));
+      const t=el("text",{x,y:H-mB+13,fill:"#6a6378","font-size":9,"text-anchor":"middle"},"10"+(d>=0?"":"⁻")+Math.abs(d));t.setAttribute("class","mono");svg.appendChild(t);}
+    /* target peak line */
+    svg.appendChild(el("line",{x1:mL,y1:Y(targetPeak),x2:W-mR,y2:Y(targetPeak),stroke:"#9b93a8","stroke-width":1.2,"stroke-dasharray":"6 4"}));
+    const tp=el("text",{x:W-mR-2,y:Y(targetPeak)-4,fill:"#9b93a8","font-size":9.5,"text-anchor":"end"},"target peak ≈ "+targetPeak.toFixed(3));tp.setAttribute("class","math");svg.appendChild(tp);
+    /* per-divergence curves + calibrated-α vertical */
+    REGKEYS.forEach(rk=>{
+      const pts=[];
+      for(let i=0;i<=NA;i++){const a=Math.pow(10,alg+(ahg-alg)*i/NA);pts.push(X(a).toFixed(1)+","+Y(peakOf(rk,a)).toFixed(1));}
+      svg.appendChild(el("polyline",{points:pts.join(" "),fill:"none",stroke:REG[rk].color,"stroke-width":rk==="kl"?2.6:1.5,opacity:rk==="kl"?1:0.9}));
+      const ax=X(alphas[rk]);
+      svg.appendChild(el("line",{x1:ax,y1:mT,x2:ax,y2:H-mB,stroke:REG[rk].color,"stroke-width":0.9,"stroke-dasharray":"2 3",opacity:0.55}));
+      svg.appendChild(el("circle",{cx:ax,cy:Y(targetPeak),r:3,fill:REG[rk].color}));
+    });
+    /* axis labels */
+    const xl=el("text",{x:(mL+W-mR)/2,y:H-6,fill:"#9b93a8","font-size":10,"text-anchor":"middle"},"regularization weight α");xl.setAttribute("class","math");svg.appendChild(xl);
+    /* legend */
+    REGKEYS.forEach((rk,i)=>{const x=mL+6+(i%4)*120,y=mT+6+((i/4)|0)*14;
+      svg.appendChild(el("line",{x1:x,y1:y,x2:x+16,y2:y,stroke:REG[rk].color,"stroke-width":rk==="kl"?2.6:1.5}));
+      svg.appendChild(el("text",{x:x+20,y:y+3.5,fill:"#9b93a8","font-size":9},REG[rk].label));});
+  }
+
+  /* ── downloads ── */
+  function svgToBlob(svgEl){
+    const clone=svgEl.cloneNode(true);
+    clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+    const css='<style>text{font-family:Georgia,serif}</style>';
+    const body=clone.outerHTML.replace(/<svg([^>]*)>/, '<svg$1 style="background:#1c1825">'+css);
+    return new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+body],{type:"image/svg+xml"});
+  }
+  function download(blob,name){
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},100);
+  }
+  function dlSVG(id,name){const e=$(id);if(!e||!e.querySelector("*")){$("t3-status").textContent="Nothing to save yet — run training / draw first.";return;}download(svgToBlob(e),name);}
+
+  function drawPolicies(res,nmNote){
+    $("t3-pol-title").textContent=`Policy comparison — π*_Ω (dashed, open circles) vs π_θ (solid, squares) · n_mc=${nmNote} · seed mean · target peak=${targetPeak.toFixed(2)}`;
+    const svg=$("t3-pols");svg.innerHTML="";
+    const PW=258,PH=142,X0=[18,300],Y0=[46,238,430,622];
+    /* legend */
+    svg.appendChild(el("line",{x1:140,y1:16,x2:170,y2:16,stroke:"#ece7df","stroke-width":1.2,"stroke-dasharray":"4 3",opacity:0.8}));
+    svg.appendChild(el("circle",{cx:155,cy:16,r:2.8,fill:"#181420",stroke:"#ece7df","stroke-width":1}));
+    svg.appendChild(el("text",{x:176,y:20,fill:"#9b93a8","font-size":10},"π* (ground truth)"));
+    svg.appendChild(el("line",{x1:312,y1:16,x2:342,y2:16,stroke:"#e84393","stroke-width":2}));
+    svg.appendChild(el("rect",{x:324.5,y:13.5,width:5,height:5,fill:"#e84393"}));
+    svg.appendChild(el("text",{x:348,y:20,fill:"#9b93a8","font-size":10},"π_θ (DPO-trained)"));
+    REGKEYS.forEach((rk,i)=>{
+      const x0=X0[i%2],y0=Y0[(i/2)|0];
+      const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH);
+      const pols=res[rk].pols;
+      const star=[],est=[];
+      for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)for(let a=0;a<3;a++){
+        star.push(sol.pistar[l][s][a]);
+        est.push(pols.reduce((acc,P)=>acc+P[l][s][a],0)/pols.length);
+      }
+      const ymax=Math.max(...star,...est)*1.14;
+      const NPTS=DEPTH*SN*3;
+      const X=idx=>x0+6+(PW-12)*idx/Math.max(NPTS-1,1);
+      const Y=v=>y0+PH-14-(PH-24)*(v/ymax);
+      svg.appendChild(el("rect",{x:x0,y:y0,width:PW,height:PH,fill:"#181420",stroke:"#2c2738",rx:8}));
+      for(let li=1;li<DEPTH;li++){const b=li*SN*3;svg.appendChild(el("line",{x1:X(b-0.5),y1:y0+8,x2:X(b-0.5),y2:y0+PH-12,stroke:"#2c2738","stroke-width":0.8,"stroke-dasharray":"2 4"}));}
+      for(let li=0;li<DEPTH;li++){
+        const t=el("text",{x:X(li*SN*3+(SN*3-1)/2),y:y0+PH-3,fill:"#6a6378","font-size":8.5,"text-anchor":"middle"},"l="+li);
+        t.setAttribute("class","mono");svg.appendChild(t);
+      }
+      const title=el("text",{x:x0+4,y:y0-7,fill:REG[rk].color,"font-size":11.5},`${REG[rk].label}  (α=${alphas[rk].toFixed(2)})`);
+      title.setAttribute("class","math");svg.appendChild(title);
+      svg.appendChild(el("polyline",{points:star.map((v,j)=>X(j).toFixed(1)+","+Y(v).toFixed(1)).join(" "),fill:"none",stroke:"#ece7df","stroke-width":1.1,"stroke-dasharray":"4 3",opacity:0.75}));
+      svg.appendChild(el("polyline",{points:est.map((v,j)=>X(j).toFixed(1)+","+Y(v).toFixed(1)).join(" "),fill:"none",stroke:REG[rk].color,"stroke-width":1.8}));
+      star.forEach((v,j)=>svg.appendChild(el("circle",{cx:X(j),cy:Y(v),r:2.2,fill:"#181420",stroke:"#ece7df","stroke-width":0.9,opacity:0.85})));
+      est.forEach((v,j)=>svg.appendChild(el("rect",{x:X(j)-2.1,y:Y(v)-2.1,width:4.2,height:4.2,fill:REG[rk].color})));
+    });
+  }
+
+  /* controls */
+  $("t3-peak").addEventListener("input",e=>{targetPeak=parseFloat(e.target.value);$("t3-peak-v").textContent=targetPeak.toFixed(2);});
+  $("t3-peak").addEventListener("change",()=>{calibrate();$("t3-status").textContent=`α recalibrated — target peak=${targetPeak.toFixed(2)}. Run training to compare at these α.`;});
+  $("t3-nmc").addEventListener("input",e=>{nmc=parseInt(e.target.value);$("t3-nmc-v").textContent=nmc;});
+  $("t3-np").addEventListener("input",e=>{npairs=parseInt(e.target.value);$("t3-np-v").textContent=npairs;});
+  $("t3-sd").addEventListener("input",e=>{nseeds=parseInt(e.target.value);$("t3-sd-v").textContent=nseeds;});
+  $("t3-dep").addEventListener("input",e=>{DEPTH=parseInt(e.target.value);$("t3-dep-v").textContent=DEPTH;});
+  $("t3-dep").addEventListener("change",()=>{
+    rewards=newRewards(DEPTH);makeDataset();calibrate();drawMDP();
+    $("t3-status").textContent=`depth L=${DEPTH} applied — new MDP of this depth, data rebuilt, α recalibrated.`;
+  });
+  $("t3-eps").addEventListener("input",e=>{EPS=parseFloat(e.target.value);$("t3-eps-v").textContent=EPS.toFixed(2);});
+  $("t3-eps").addEventListener("change",()=>{makeDataset();calibrate();$("t3-status").textContent=`ε=${EPS.toFixed(2)} applied — transitions changed, so data was rebuilt and α recalibrated.`;});
+  $("t3-bs").addEventListener("input",e=>{BATCH=Math.pow(2,parseInt(e.target.value));$("t3-bs-v").textContent=BATCH;});
+  $("t3-mode").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    $("t3-mode").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");gradMode=b.dataset.v;
+    $("t3-status").textContent=`gradient mode = ${gradMode} (${gradMode==="A"?"exact ∂Ĉ/∂θ propagation":"scale-only approximation"}). Run training to compare.`;
+  }));
+  $("t3-offp").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    $("t3-offp").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+    offPolicy=(b.dataset.v==="off");
+    $("t3-nmc").disabled=offPolicy;
+    $("t3-nmc").style.opacity=offPolicy?0.4:1;
+    const ct=$("t3-cstats-title");
+    if(ct)ct.textContent=offPolicy
+      ? "C_Ω statistics — extreme off-policy: solid bar = spread across states, faint bar = |bias| proxy of the data-a' estimate (uniform a' vs π* expectation) (log scale)"
+      : "C_Ω statistics — at the calibrated π*_Ω · solid bar = spread across states std_s[C], faint bar = std of a 1-sample estimate (log scale)";
+    $("t3-status").textContent=offPolicy
+      ?"Extreme off-policy — inner term evaluated only at the data-recorded a' (1-sample, n_mc ignored). Sharpest demonstration that KL is the only divergence admissible from data alone."
+      :"On-policy inner — resample n_mc fresh actions a' from π(·|s'). The n_mc slider matters again.";
+    drawCStats();
+  }));
+  $("t3-newmdp").addEventListener("click",()=>{
+    rewards=newRewards(DEPTH);makeDataset();calibrate();
+    $("t3-status").textContent="New MDP and preference data generated, α recalibrated — all seven Ω share the same data.";
+  });
+  function summarize(out){
+    const o={meta:{targetPeak,EPS,BATCH,DEPTH,gradMode,offPolicy,npairs,nseeds,STEPS,GAMMA,LR},
+      alphas:Object.fromEntries(REGKEYS.map(rk=>[rk,alphas[rk]])),
+      gaps:{}};
+    for(const nm of Object.keys(out)){o.gaps[nm]={};
+      for(const rk of REGKEYS){const f=out[nm][rk].finals;
+        const mu=f.reduce((a,b)=>a+b,0)/f.length;
+        const sd=Math.sqrt(f.reduce((s,x)=>s+(x-mu)**2,0)/Math.max(f.length-1,1));
+        o.gaps[nm][rk]={mean:mu,std:sd,finals:f};}}
+    return o;
+  }
+  $("t3-run").addEventListener("click",()=>{
+    if(running)return;
+    runAll([nmc],out=>{
+      lastRun=summarize(out);
+      drawCurves(out[nmc]);
+      drawBars(out,`Final policy gap @ n_mc=${nmc} (± seed std)`);
+      drawPolicies(out[nmc],nmc);
+      $("t3-status").textContent=`Done — n_mc=${nmc}, N_pairs=${npairs}, seeds=${nseeds}, calibrated α. Compare KL stability vs non-KL noise in the policy panels.`;
+    });
+  });
+  $("t3-sweep").addEventListener("click",()=>{
+    if(running)return;
+    runAll([1,4,16],out=>{
+      lastRun=summarize(out);
+      drawCurves(out[1]);
+      drawBars(out,"n_mc sweep — final policy gap (± seed std) · curves & policy panels shown at n_mc=1");
+      drawPolicies(out[1],1);
+      $("t3-status").textContent="Sweep done — KL bars stay flat across n_mc, non-KL bars fall as n_mc grows: the off-policy admissibility fingerprint.";
+    });
+  });
+  const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}_${gradMode}${offPolicy?"_offpol":""}`;
+  $("t3-dl-sweep").addEventListener("click",()=>dlSVG("t3-sweep-plot",`alpha_peak_sweep_${stamp()}.svg`));
+  $("t3-dl-cprobe").addEventListener("click",()=>dlSVG("t3-cprobe",`c_admissibility_probe_${stamp()}.svg`));
+  ["c0","c1","c2"].forEach((id,k)=>{
+    $("t3-"+id).addEventListener("input",e=>{CVALS[k]=parseFloat(e.target.value);$("t3-"+id+"-v").textContent=CVALS[k].toFixed(2);drawCProbe();});
+  });
+  $("t3-cidx").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    $("t3-cidx").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+    cShowMode=b.dataset.v;drawCProbe();
+  }));
+  $("t3-dl-curves").addEventListener("click",()=>dlSVG("t3-curves",`training_curves_${stamp()}.svg`));
+  $("t3-dl-bars").addEventListener("click",()=>dlSVG("t3-bars",`policy_gap_bars_${stamp()}.svg`));
+  $("t3-dl-pols").addEventListener("click",()=>dlSVG("t3-pols",`policy_panels_${stamp()}.svg`));
+  $("t3-dl-json").addEventListener("click",()=>{
+    if(!lastRun){$("t3-status").textContent="No results to save yet — run training first.";return;}
+    download(new Blob([JSON.stringify(lastRun,null,2)],{type:"application/json"}),`admissibility_results_${stamp()}.json`);
+  });
+  makeDataset();calibrate();
+  return {};
+})();
+</script>
+</body>
+</html>

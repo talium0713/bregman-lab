@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Off-policy admissibility — Python port · 작업 리뷰</title>
+<style>
+  :root{
+    --bg:#17141f; --panel:#1f1b29; --panel2:#262130; --ink:#ece7df; --faint:#9b93a8;
+    --dim:#6a6378; --line:#2c2738; --accent:#d9a441;
+    --kl:#e84393; --adiv:#c455b8; --rkl:#9b59d0; --js:#6f6ae0; --hel:#5585e0; --chi2:#4fa8d8; --euc:#5bc8d6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--js)}
+  code,.mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:.86em}
+  .math{font-family:Georgia,"Times New Roman",serif;font-style:italic}
+  .app{display:flex;min-height:100vh}
+
+  /* ── left sidebar: git tree nav ── */
+  .sidebar{width:290px;flex:0 0 290px;background:#141019;border-right:1px solid var(--line);
+    position:sticky;top:0;height:100vh;overflow:auto;padding:18px 14px}
+  .sidebar h1{font-size:15px;margin:0 0 2px}
+  .sidebar .sub{color:var(--dim);font-size:11px;margin-bottom:12px}
+  .legend{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px}
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--faint)}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:0 0 auto}
+  .navsec{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin:14px 0 6px}
+  .nav-item{cursor:pointer;padding:7px 10px;border-radius:8px;font-size:13px;display:flex;gap:8px;align-items:center}
+  .nav-item:hover{background:var(--panel)}
+  .nav-item.active{background:var(--panel2);color:#fff;font-weight:600}
+
+  .tree{margin-top:4px;position:relative}
+  .commit{position:relative;cursor:pointer;padding:9px 10px 9px 34px;border-radius:8px;margin-bottom:2px}
+  .commit:hover{background:var(--panel)}
+  .commit.active{background:var(--panel2)}
+  .commit::before{content:"";position:absolute;left:14px;top:26px;bottom:-2px;width:2px;background:var(--line)}
+  .commit:last-child::before{display:none}
+  .commit .node{position:absolute;left:8px;top:11px;width:14px;height:14px;border-radius:50%;
+    border:3px solid #141019;box-shadow:0 0 0 2px var(--line)}
+  .commit.active .node{box-shadow:0 0 0 2px var(--accent)}
+  .commit .ct{font-size:12.5px;font-weight:600;line-height:1.35}
+  .commit .ch{font-family:"SF Mono",monospace;font-size:10px;color:var(--dim)}
+
+  /* ── right content: one page visible ── */
+  .content{flex:1;overflow:auto;padding:26px 34px 80px;min-width:0}
+  section.page{display:none;max-width:940px}          /* prose stays readable width */
+  section#live{max-width:1600px}                      /* live figures use the full width */
+  section.page.active{display:block;animation:fade .15s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  h2.title{font-size:19px;margin:0 0 4px}
+  .pagemeta{color:var(--dim);font-size:12px;margin-bottom:16px}
+  .q{color:var(--faint);font-size:13px;border-left:3px solid var(--line);padding:8px 12px;margin:0 0 18px;background:#1a1622;border-radius:0 8px 8px 0}
+  h3{font-size:13.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;margin:22px 0 8px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  pre{background:#120f19;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;color:#d6cfe0}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0}
+  th,td{border:1px solid var(--line);padding:5px 9px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  thead th{background:var(--panel2);color:var(--faint);font-weight:600}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid var(--line)}
+  .yes{color:#58c08a;border-color:#2e5e44}.no{color:var(--dim)}
+  figure{margin:12px 0}figure img{max-width:560px;width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
+  figcaption{color:var(--dim);font-size:12px;margin-top:5px}
+  /* thumbnail grid — exactly 3 per row, click to enlarge in-page (lightbox) */
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:10px 0}
+  .thumb{display:block;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:zoom-in}
+  .thumb img{display:block;width:100%;height:235px;object-fit:contain;background:#fff}
+  .thumb span{display:block;color:var(--faint);font-size:11.5px;padding:5px 9px;background:var(--panel)}
+  .thumb:hover{border-color:var(--accent)}
+  .lb{position:fixed;inset:0;background:rgba(10,8,14,.9);display:none;align-items:center;justify-content:center;z-index:100;cursor:zoom-out}
+  .lb.open{display:flex}
+  .lb img{max-width:94vw;max-height:92vh;border-radius:6px;background:#fff;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  .lb .lbcap{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:#ece7df;font-size:13px;background:rgba(0,0,0,.55);padding:5px 14px;border-radius:14px}
+  .subtog{display:inline-flex;gap:6px;margin:8px 0}
+  .sbtn{cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--faint);border-radius:7px;padding:4px 12px;font-size:12.5px}
+  .sbtn.active{background:var(--panel2);color:#fff;border-color:var(--accent)}
+  .note{color:var(--faint);font-size:13px}
+  .warn{border-left:3px solid var(--accent);padding-left:12px;background:#241d12;border-radius:0 8px 8px 0;padding:10px 12px;margin:10px 0}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12px;font-family:monospace}
+  details summary{cursor:pointer;color:var(--accent);font-weight:600}
+  .toggle{margin:16px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--faint)}
+  .tbtn{cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 15px;font-size:13.5px}
+  .tbtn:hover{background:var(--panel2)}
+  .tbtn.active{background:var(--accent);color:#1a1622;font-weight:700;border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="lb" id="lightbox"><img alt=""><div class="lbcap" id="lbcap"></div></div>
+<div class="app">
+
+  <!-- ═══════════ LEFT: git tree nav ═══════════ -->
+  <nav class="sidebar">
+    <h1>Off-policy admissibility</h1>
+    <div class="sub">Python port · 작업 리뷰 · 박스를 클릭하면 해당 페이지가 열립니다</div>
+    <div class="legend" id="legend"></div>
+
+    <div class="navsec">pages</div>
+    <div class="nav-item" data-target="howto">▶ 실험 돌리는 법</div>
+    <div class="nav-item" data-target="setup">⚙ DPO 학습 세팅</div>
+    <div class="nav-item" data-target="live">📊 라이브 결과 (Part 3)</div>
+
+    <div class="navsec">🌳 작업 기록 (git-tree)</div>
+    <div class="tree" id="tree">
+      <div class="commit" data-target="r9" data-color="var(--rkl)">
+        <span class="node" style="background:var(--rkl)"></span>
+        <div class="ct">§4.3 구현: n_mc 스윕 (on=π*, off=π_ref) + inner 벡터화</div><div class="ch">r9 · 06-12</div></div>
+      <div class="commit" data-target="r8" data-color="var(--kl)">
+        <span class="node" style="background:var(--kl)"></span>
+        <div class="ct">§4.2 single-state + trajectory 분산 (전역) · c(s′)·morph 제외</div><div class="ch">r8 · 06-12</div></div>
+      <div class="commit" data-target="r7" data-color="var(--euc)">
+        <span class="node" style="background:var(--euc)"></span>
+        <div class="ct">N_pairs 600→6000 + 우측 폭 활용 + Euclidean</div><div class="ch">r7 · 06-12</div></div>
+      <div class="commit" data-target="r6" data-color="var(--chi2)">
+        <span class="node" style="background:var(--chi2)"></span>
+        <div class="ct">off-policy 패널 + peak/x축 설명 + 그림 축소</div><div class="ch">r6 · 06-12</div></div>
+      <div class="commit" data-target="r5" data-color="var(--adiv)">
+        <span class="node" style="background:var(--adiv)"></span>
+        <div class="ct">α-div 파라미터화 + eq15 제거 + 2분할 UI</div><div class="ch">r5 · 06-12</div></div>
+      <div class="commit" data-target="r4" data-color="var(--js)">
+        <span class="node" style="background:var(--js)"></span>
+        <div class="ct">Part 3 전체 실험 + 공정성(Φ를 f,f′서 계산)</div><div class="ch">r4 · 06-12</div></div>
+      <div class="commit" data-target="r3" data-color="var(--kl)">
+        <span class="node" style="background:var(--kl)"></span>
+        <div class="ct">실험 검증 + 왜 KL은 0-분산인가</div><div class="ch">r3 · 06-12</div></div>
+      <div class="commit" data-target="r2" data-color="var(--hel)">
+        <span class="node" style="background:var(--hel)"></span>
+        <div class="ct">const_C 하드코딩 제거 + π_ref 일반화</div><div class="ch">r2 · 06-12</div></div>
+      <div class="commit" data-target="r1" data-color="var(--euc)">
+        <span class="node" style="background:var(--euc)"></span>
+        <div class="ct">JS → Python 포팅 + c(s′) 검증</div><div class="ch">r1 · 06-12</div></div>
+    </div>
+  </nav>
+
+  <!-- ═══════════ RIGHT: pages ═══════════ -->
+  <main class="content">
+
+    <!-- ───── HOW TO RUN ───── -->
+    <section class="page" id="howto">
+      <h2 class="title">▶ 실험 돌리는 법 (VSCode / 터미널)</h2>
+      <p class="note">브라우저는 Python을 직접 못 돌립니다(기존 JS suite는 JS라서 가능했던 것). 대신
+        <b>VSCode에서 스크립트를 돌리면 <code>figs/*.png</code> + <code>results_data.js</code>가 갱신되고,
+        이 페이지를 새로고침하면 “라이브 결과”에 자동 반영</b>됩니다.</p>
+<pre>cd python
+python run_part3.py        # 전체 Part-3 실험 (~3분) → figs/part3_*.png + results_data.js
+QUICK=1 python run_part3.py  # 빠른 스모크 (2 seeds / 80 steps)
+python verify.py           # 7개 수치 검증 (전부 PASS여야 함)</pre>
+      <p class="note">VSCode: <code>run_part3.py</code> 열고 ▷(Run Python File) 또는 <kbd>⌃/⌘</kbd>+<kbd>F5</kbd>.
+        파라미터(<code>SEEDS, STEPS, NMCS, EPS, DEPTH, TARGET</code>)는 <code>run_part3.py</code> 상단에서 수정.
+        α-divergence의 <code>a</code>는 <code>regularizers.DEFAULT_ADIV_A</code>(기본 0.5) 또는 <code>make_adiv(a)</code>로.</p>
+      <details><summary>왜 HTML에서 바로 못 돌리나?</summary>
+        <p class="note">정적 HTML에서 numpy를 돌리려면 Pyodide(WASM)를 얹어야 하는데 느리고 무겁습니다.
+          “VSCode에서 돌리고 HTML에 반영” 루프가 가볍고 디버깅도 쉬워 이 방식으로 구성했습니다. 원하면 Pyodide 버전도 가능.</p>
+      </details>
+    </section>
+
+    <!-- ───── DPO TRAINING SETUP ───── -->
+    <section class="page" id="setup">
+      <h2 class="title">⚙ DPO 학습 세팅</h2>
+      <div class="pagemeta">trajectory-DPO 학습에 쓰인 하이퍼파라미터·네트워크·손실 — 코드(<code>dpo.py</code>, <code>run_part3.py</code>, <code>mdp.py</code>)에서 그대로 추출.
+        <span class="note">굵은 값은 실행 메타에서 자동 반영(<code>NPAIRS</code> 등 바꾸면 갱신).</span></div>
+
+      <h3>① 정책 파라미터화 (네트워크)</h3>
+      <table><tbody>
+        <tr><td>형태</td><td><b>tabular softmax</b> (신경망 아님) — 상태별 logit 벡터</td></tr>
+        <tr><td>파라미터 θ</td><td>shape (depth, states, actions) = (<span data-meta="depth">4</span>, 3, 3) = <b>36개 logit</b></td></tr>
+        <tr><td>정책</td><td>π<sub>θ</sub>(·|s) = softmax(θ[ℓ,s], <b>temperature = 1</b>)</td></tr>
+        <tr><td>초기화</td><td>θ ~ Uniform(−0.05, 0.05)</td></tr>
+      </tbody></table>
+
+      <h3>② 옵티마이저 / SGD</h3>
+      <table><tbody>
+        <tr><td>optimizer</td><td><b>Adam</b> (bias-corrected, <code>dpo.py</code> 직접 구현)</td></tr>
+        <tr><td>β₁ / β₂ / ε</td><td>0.9 / 0.999 / 1e−8</td></tr>
+        <tr><td>learning rate</td><td><b><span data-meta="lr">0.08</span></b></td></tr>
+        <tr><td>batch size</td><td><b><span data-meta="batch">16</span></b> preference-pair / step</td></tr>
+        <tr><td>steps</td><td><b><span data-meta="steps">300</span></b></td></tr>
+        <tr><td>seeds</td><td><b><span data-meta="seeds">5</span></b> (막대 ± seed std)</td></tr>
+      </tbody></table>
+
+      <h3>③ 손실 / 목적함수</h3>
+      <table><tbody>
+        <tr><td>loss</td><td>trajectory-DPO: ℓ = −log σ(d), &nbsp; d = score(τ<sub>w</sub>) − score(τ<sub>l</sub>)</td></tr>
+        <tr><td>score(τ)</td><td>Σ<sub>t</sub> α·[∇Ω(π(·|s<sub>t</sub>))]<sub>a<sub>t</sub></sub> + Σ<sub>t</sub> α·Ĉ<sub>Ω</sub>(π(·|s<sub>t+1</sub>)) &nbsp;<span class="note">(β(s) 항은 차분에서 상쇄)</span></td></tr>
+        <tr><td>β<sub>DPO</sub></td><td>1 (d를 σ에 직접)</td></tr>
+        <tr><td>inner-term gradient</td><td>mode <b>A</b> (faithful): ∂Ĉ<sub>Ω</sub>/∂θ를 같은 a′ 샘플로 Φ′ 통해 역전파</td></tr>
+        <tr><td>inner samples n_mc</td><td><b>§4.3에서 {1,2,4,…,256} 스윕</b>. on/off 모두 a′~π(·|s′)에서 <b>n_mc개 재샘플</b>(같은 per-step MC budget). KL은 Φ≡1이라 n_mc 무관·noise 0.</td></tr>
+      </tbody></table>
+
+      <h3>④ 데이터 / 선호 oracle</h3>
+      <table><tbody>
+        <tr><td>N_pairs</td><td><b><span data-meta="npairs">6000</span></b> 선호쌍</td></tr>
+        <tr><td>oracle</td><td>Bradley–Terry, raw 할인 리턴 기준 (temp 1)</td></tr>
+        <tr><td>데이터 정책 (§4.3)</td><td><b>on-policy</b> = π*_Ω 롤아웃 (divergence별) · <b>off-policy</b> = π_ref(uniform) 롤아웃</td></tr>
+      </tbody></table>
+
+      <h3>⑤ 환경 (MDP)</h3>
+      <table><tbody>
+        <tr><td>구조</td><td>layered MDP · depth=<span data-meta="depth">4</span> · states/layer=3 · actions=3</td></tr>
+        <tr><td>전이</td><td>ε-stochastic, ε=<span data-meta="eps">0.2</span> (목표 상태 1−ε, 나머지 균등)</td></tr>
+        <tr><td>보상</td><td>Uniform(−0.8, 0.8), 모든 (ℓ,s,a)</td></tr>
+        <tr><td>γ (할인)</td><td><span data-meta="gamma">0.9</span></td></tr>
+        <tr><td>π_ref</td><td>action에 대해 uniform (기본)</td></tr>
+        <tr><td>α (정규화 가중)</td><td>divergence·peak 별로 보정 — 라이브 결과 표의 α 열 참조</td></tr>
+      </tbody></table>
+      <p class="note">바꾸려면: 학습은 <code>dpo.py</code>의 <code>TrainConfig</code>(lr·batch·steps·grad_mode), 규모는
+        <code>run_part3.py</code> 상단(<code>SEEDS·STEPS·NPAIRS·PEAKS·BATCH·EPS·DEPTH</code>).</p>
+    </section>
+
+    <!-- ───── LIVE RESULTS ───── -->
+    <section class="page active" id="live">
+      <h2 class="title">📊 라이브 결과 — Part 3 (Off-Policy Admissibility)</h2>
+      <div class="pagemeta" id="run-meta"></div>
+      <div id="live-body">결과 파일이 없습니다 — <code>python run_part3.py</code>를 먼저 실행하세요.</div>
+    </section>
+
+    <!-- ───── R9 ───── -->
+    <section class="page" id="r9">
+      <h2 class="title">§4.3 구현 — Δπ vs n_mc (on=π*_Ω, off=π_ref) + inner 벡터화</h2>
+      <div class="pagemeta">r9 · 2026-06-12</div>
+      <div class="q">요청: 논문 §4.3 실험(Figure 5)을 진행 — n_mc 스윕에서 on/off-policy Δπ.</div>
+
+      <h3>핵심: §4.3의 on/off는 "데이터 정책" 구분</h3>
+      <p>논문 §4.3에서 <b>on-policy = 선호 데이터를 각 Ω의 π*_Ω에서 롤아웃</b>, <b>off-policy = π_ref(uniform)에서 롤아웃</b>입니다.
+        <b>inner term은 양쪽 다 n_mc개 샘플을 π(·|s′)에서 재샘플</b>(같은 per-step MC budget). — 이전 라운드의 "단일 logged a′" off-policy와는 다른 정의라,
+        <code>dpo.make_dataset_policy</code>(π*_Ω 롤아웃)를 추가하고 off-policy 의미를 데이터 정책으로 교체했습니다.</p>
+
+      <h3>실험 설계 (Fig 5 재현)</h3>
+      <p>각 peak에서 n_mc ∈ {1,2,4,8,16,32,64,128,256} 스윕, on/off 2-panel, Δπ vs n_mc에 ±1σ 밴드.
+        peak 토글로 0.6/0.7/0.8 전환. <b>KL은 n_mc에 평탄·최저, 비-KL은 n_mc↑에서 감소</b>(inner-term MC 노이즈가 budget으로 줄어듦).</p>
+
+      <h3>n_mc=256을 위한 벡터화</h3>
+      <p>기존 <code>draw_inner</code>·inner gradient는 n_mc에 대해 Python 루프라 n_mc=256이 매우 느렸습니다.
+        numpy로 벡터화(샘플 일괄 추출 + <code>np.add.at</code> scatter)해 <b>n_mc=256이 n_mc=1과 거의 같은 속도</b>(0.29s vs 0.23s)가 됐습니다.
+        수학적으로 동일(scatter+pol·Σ = 원래 이중 루프), verify.py 8 PASS 유지.</p>
+      <h3>왜 처음엔 KL이 안 갈렸나 (JS와 비교 진단)</h3>
+      <p>JS 결과(KL이 뚜렷이 분리)와 안 맞아 진단한 결과, <b>포팅은 JS와 동일(버그 아님)</b>이었고 분리가 안 보인 건 설정 탓이었습니다:</p>
+      <ul style="color:var(--faint);font-size:13.5px;margin:6px 0 6px 18px">
+        <li><b>N_pairs·steps 부족</b> — N_pairs=600·steps=300이면 데이터·수렴 한계로 모두 ~0.2에 묶임. KL이 비-KL 노이즈 바닥 아래로
+          수렴하려면 <b>N_pairs=6000 + steps=400</b> 필요.</li>
+        <li><b>π* 데이터는 탐색 부족</b> — on-policy(π* 롤아웃)는 한쪽으로 집중돼 수렴이 나쁨. uniform(π_ref) 데이터가 모든 행동을 탐색해 KL이 잘 수렴(off-policy 패널이 더 깨끗).</li>
+        <li><b>Δπ는 균등가중 TV</b>(JS와 동일)로 되돌림. occupancy 가중은 χ²/Euc 경계 문제를 오히려 키웠음.</li>
+        <li><b>여러 MDP 평균</b>(논문의 leaf-reward draws처럼)으로 밴드를 깨끗하게.</li>
+      </ul>
+      <div class="warn">수정 후: <b>KL은 모든 n_mc에서 평탄·최저, 비-KL은 n_mc=1에서 높다가 n_mc↑로 KL을 향해 감소</b>(논문 Fig 5).
+        χ²·squared Euclidean은 projection-type이라 π*가 simplex 경계(0)에 닿고 softmax π_θ가 0을 못 만들어 <b>on-policy에서 구조적으로 높음</b>(논문에서도 최악 라인).</div>
+    </section>
+
+    <!-- ───── R8 ───── -->
+    <section class="page" id="r8">
+      <h2 class="title">§4.2 single-state + trajectory 분산을 전역 결과로 · c(s′)·morph 제외</h2>
+      <div class="pagemeta">r8 · 2026-06-12</div>
+      <div class="q">요청: c(s′) 분석은 당장 안 중요하니 빼고, 논문 §4.2의 single-state·trajectory 실험을 구현해 전역 결과 최우선으로. α-div morph도 일단 빼기.</div>
+
+      <h3>논문 §4.2 두 실험 구현 (학습 없이 분산 측정)</h3>
+      <p><b>Single-state (Fig 3)</b>: 한 상태, |A|=100, π_ref uniform, π=softmax(N(0,1)×3) (peak≈0.24).
+        n∈{2²…2¹⁰}에 대해 n-샘플 Φ-form 추정량 Ĉ_Ω의 mean·std를 500 draw로 측정.
+        <b>KL은 모든 n에서 mean=1·std=0</b>, 비-KL std는 <span class="math">1/√n</span>로 감소.</p>
+      <p><b>Trajectory (Fig 4)</b>: peaked policy(peakedness=scale 1.0), n_mc=8, H∈{1…8}.
+        horizon-H는 H−1개의 독립 inner-term draw를 implicit reward에 더하므로, 합
+        <span class="math">S=Σ<sub>t</sub> Ĉ_Ω</span>의 per-trajectory std가 <b>비-KL은 √(H−1)로 누적, KL은 0</b>.
+        검증: adiv std 비율 1.0/1.43/2.01/2.64 ≈ √(H−1) 1.0/1.41/2.0/2.65, KL std≈1e-16(=0), KL 합(H=8)=7.0=exact.</p>
+      <div class="warn">이 둘이 admissibility의 <b>가장 직접적 신호</b>입니다(갭이 아니라 분산). 전역 결과 패널 최상단에 2-panel 그림(값±1σ | std)으로 배치했습니다.
+        구현: <code>inner_term.single_state_variance / trajectory_variance</code>.</div>
+
+      <h3>중요: §4.2는 α·peak가 아니라 “같은 π” 기준</h3>
+      <p>§4.2는 <b>학습을 하지 않습니다.</b> 모든 divergence가 <b>동일한 고정 정책 π</b>(softmax of N(0,1)·scale, 같은 seed)를 공유하고,
+        그 π에 각자의 Φ/C_Ω만 적용해 추정량 분산만 비교합니다. <b>α도, peak 캘리브레이션도, <code>solve_dp</code>도 호출하지 않습니다.</b>
+        (검증: 7개 divergence가 보는 π가 <code>np.array_equal=True</code>.) — 반면 per-peak 패널(라이브 결과 토글)은 학습 실험이라 divergence별 peak-calibrated α를 씁니다. 의도적으로 분리된 설정입니다.</p>
+
+      <h3>제외한 것</h3>
+      <p>전역 결과에서 <b>c(s′) probe</b>와 <b>α-divergence morph</b>를 뺐습니다(요청). 코드(<code>fig_cprobe</code>,
+        <code>fig_adiv_morph</code>, <code>make_adiv</code>)는 남아 있어 언제든 재생성·복귀 가능합니다.</p>
+    </section>
+
+    <!-- ───── R7 ───── -->
+    <section class="page" id="r7">
+      <h2 class="title">N_pairs 600 → 6000 · 우측 폭 활용 · Euclidean</h2>
+      <div class="pagemeta">r7 · 2026-06-12</div>
+      <div class="q">요청: 우측 공간이 낭비됨. Euclidean이 생각보다 잘함. 지금 preference data가 얼마나 되나? JS에선 N_pair가 클수록 KL이 좋아 보였음.</div>
+
+      <h3>지금까지 쓴 preference data + 늘린 이유</h3>
+      <p>직전까지 <b>N_pairs = 600</b>(2000개 중 600개)을 썼습니다. 말씀이 맞습니다 —
+        <b>데이터가 많을수록 KL이 유리해집니다.</b> 이유: preference 데이터가 적으면 데이터 추정 노이즈가
+        지배적이라 divergence 차이를 가립니다. 데이터가 많아지면 그 노이즈가 줄고, 그러면 <b>비-KL의
+        inner-term MC 노이즈(n_mc=1)가 상대적으로 드러나</b> KL의 noise-free 우위가 보입니다.
+        JS의 N_pairs→10000 추세와 같은 원리입니다.</p>
+      <div class="warn">이번에 <b>N_pairs를 6000으로 10배</b> 늘리고 (<code>run_part3.py</code>의 <code>NPAIRS</code>),
+        steps도 300으로 올렸습니다. 라이브 패널 상단 메타에 <code>N_pairs</code>가 표시됩니다.
+        더 키우려면 <code>NPAIRS</code>만 바꾸면 됩니다.</div>
+      <p><b>결과(확인됨):</b> N_pairs=600일 땐 Euc가 자주 이겼지만, <b>6000으로 늘리니 6개 케이스(3 peak × on/off)
+        전부 KL이 최저</b>가 됐습니다 — 예: peak 0.8에서 KL on/off = 0.188/0.197, 차순위 Euc 0.213, 최악 RKL 0.325.
+        데이터 노이즈가 줄자 KL의 admissibility 우위가 또렷해진 것.</p>
+
+      <h3>Euclidean이 잘하는 이유</h3>
+      <p>squared Euclidean은 정규화가 단순한 2차식이라 <b>최적화 지형이 매끄럽고 softmax로 fit이 쉽습니다.</b>
+        작은 데이터·toy MDP에선 이 “쉬움”이 inner-term 노이즈 손해를 상쇄해 자주 최저 갭을 냅니다.
+        하지만 Euclidean도 admissible은 아닙니다(C_Ω 분산 &gt; 0) — 데이터/off-policy를 키우면 KL과의 격차가 좁혀지거나 역전됩니다.
+        admissibility의 깨끗한 신호는 갭이 아니라 <b>C_Ω 분산=0(KL만)</b>임을 다시 강조합니다.</p>
+
+      <h3>우측 공간 활용</h3>
+      <p>content 폭 제한을 풀어 <b>라이브 결과 페이지는 화면 전체 폭(≤1600px)을 쓰고</b>, figure 썸네일 그리드가
+        가로를 채우도록 했습니다(글 페이지는 가독성 위해 940px 유지).</p>
+    </section>
+
+    <!-- ───── R6 ───── -->
+    <section class="page" id="r6">
+      <h2 class="title">off-policy 패널 + peak·x축 설명 + 그림 축소</h2>
+      <div class="pagemeta">r6 · 2026-06-12</div>
+      <div class="q">요청: off-policy도 on-policy처럼 정보 제공. peak가 정확히 뭔지. 정책패널 x축 의미(Image #3). 그림이 너무 커서 한눈에 안 보임.</div>
+
+      <h3>peak 가 정확히 뭔가</h3>
+      <p>peak = 캘리브레이션 타깃 = <span class="math">평균<sub>s</sub>[ max<sub>a</sub> π*(a|s) ]</span> —
+        최적 정책 π*가 각 상태에서 한 행동에 얼마나 몰려있는지(뾰족함)의 상태 평균입니다.
+        peak=0.6이면 평균적으로 최적 행동이 ~0.6 확률을 가짐. divergence마다 geometric scale이 달라 같은 α에서
+        뾰족함이 제각각이라, <b>α를 divergence별로 보정해 모두 같은 peak를 갖게</b> 맞춥니다(공정 비교 — 그래서 α가 Ω마다 다름).</p>
+      <div class="warn">peak↑ = 더 결정적·뾰족한 타깃 → 비-KL의 inner-term 노이즈가 더 부담 → KL의 상대우위가 커짐
+        (실제로 peak 0.6→0.8에서 RKL·α-div가 크게 악화).</div>
+
+      <h3>정책패널 x축이 뭔가 (Image #3)</h3>
+      <p>x축 = <b>정책을 한 줄로 편 인덱스</b>. <span class="math">DEPTH(4)×SN(3)×NA(3)=36</span>개 항목.
+        각 점 = 특정 <span class="math">(layer ℓ, state s, action a)</span>에서의 <span class="math">π(a|s)</span> 값.
+        점선=π*(타깃 정책), 실선=π_θ(DPO 학습 정책). 세로 구분선=layer 경계이고 <b>이제 ℓ0~ℓ3 라벨</b>을 달았습니다.
+        두 선이 겹칠수록 정책 복원이 잘 된 것. (한 layer 블록 안 9개 = state 3 × action 3.)</p>
+
+      <h3>off-policy 정보 추가</h3>
+      <p>이제 각 peak에서 off-policy도 on-policy와 동일하게 <b>학습곡선 · π* vs π_θ 패널</b>을 제공합니다
+        (라이브 패널의 썸네일 그리드에 on/off 나란히). 표에는 on 갭과 off 갭을 함께 표기.</p>
+
+      <h3>그림 축소 (한눈에)</h3>
+      <p>모든 그림을 <b>작은 썸네일 그리드</b>로 바꿔 한 화면에 들어오게 했습니다. 썸네일 클릭 시 원본을 새 탭에서 엽니다.
+        matplotlib 소스 그림 크기도 줄였습니다.</p>
+
+      <h3>정직한 결과 (재확인)</h3>
+      <p>이 toy MDP에서 최종 정책갭은 노이즈가 커서 KL이 항상 최저는 아닙니다(Euc가 자주 최저). admissibility의 깨끗한 신호는
+        <b>C_Ω 분산 = 0 (KL만)</b> — C_Ω 통계·single-state 패널에 직접 드러납니다.</p>
+    </section>
+
+    <!-- ───── R5 ───── -->
+    <section class="page" id="r5">
+      <h2 class="title">α-div 파라미터화 + eq15 제거 + 2분할 UI</h2>
+      <div class="pagemeta">r5 · 2026-06-12</div>
+      <div class="q">요청: ① git-tree를 좌측에 두고 박스 클릭 시 해당 페이지가 열리게. ② eq15는 헷갈리니 Φ-form 구현만 남길 것.
+        ③ α-div 기본을 KL과 RKL 사이 값으로, 입력으로 바뀌게. ④ 같은 α에서 α-div가 바뀜에 따라 policy 양상 변화 시각화.</div>
+
+      <h3>① 좌측 git-tree · 페이지 전환</h3>
+      <p>이 페이지가 그 결과입니다. 좌측 노드를 클릭하면 해당 라운드/페이지만 우측에 표시됩니다(누적 스크롤 제거).</p>
+
+      <h3>② eq15 제거 — Φ-form만</h3>
+      <p><code>C_hat_eq15</code>와 관련 패널/그림/문서를 전부 삭제했습니다. 학습·통계·그림 모두
+        <b>유일한 추정량인 Φ-form</b> <span class="math">Ĉ=(1/n)Σ Φ(u<sub>aᵢ</sub>)</span> 만 사용합니다.
+        KL은 매 샘플 Φ를 평가하고 그 값이 산술적으로 1 → 분산 0(<code>verify.py</code> CHECK 5).</p>
+
+      <h3>③ α-divergence 파라미터화 (기본 = KL과 RKL 사이)</h3>
+      <p>α-div를 Amari 족 <span class="math">f<sub>a</sub>(t)=(t<sup>a</sup>−a·t+a−1)/(a(a−1))</span>로 일반화.
+        <b>기본값 a=0.5</b>(중간)로 두었고, <code>make_adiv(a)</code>로 임의 <code>a</code>
+        (<code>regularizers.DEFAULT_ADIV_A</code>). 확인: a=0.5의 <span class="math">C(π*)=−0.186</span>으로
+        RKL(−1.353)과 KL(+1.000) 사이.</p>
+      <div class="warn"><b>α-divergence는 7개 중 4개를 generator 수준에서 cover합니다</b>(수치 검증 완료):
+        <span class="math">a→0</span> = Reverse-KL, <span class="math">a=0.5</span> = sq. Hellinger,
+        <span class="math">a→1</span> = KL, <span class="math">a=2</span> = Pearson χ².
+        (JS·squared Euclidean은 α-div 족이 아님.)</div>
+
+      <h3>④ α-div morph — 같은 α에서 a를 넓게 스윕 (RKL→Hellinger→KL→χ²)</h3>
+      <p>고정된 α에서 α-div 파라미터 <code>a</code>를 0→2로 넓혀 π*를 (layer,state,action) 인덱스 위에 그렸습니다.
+        색은 <b>RKL·KL 색을 앵커로 한 gradient</b>(a=0 보라→a=1 핑크→확장), 범례에 각 a가 어떤 divergence로 recover되는지 표기.
+        ground truth는 그리지 않음.</p>
+      <p class="note">(α-div morph 그림은 r8에서 전역 결과에서 제외했습니다 — <code>run_part3.py</code>의 <code>fig_adiv_morph</code>로 언제든 재생성 가능.)</p>
+    </section>
+
+    <!-- ───── R4 ───── -->
+    <section class="page" id="r4">
+      <h2 class="title">Part 3 전체 실험 + 공정성 (Φ를 f, f′에서 계산)</h2>
+      <div class="pagemeta">r4 · 2026-06-12</div>
+      <div class="q">요청: Part 3 실험을 쭉 돌릴 것. 그리고 KL도 다른 divergence처럼 샘플링 기반으로 — 명시적으로 상수를 박는 건 불공정.</div>
+      <h3>공정성 — Φ를 리터럴로 박지 않음</h3>
+      <p><code>Phi = lambda u: 1.0</code> 같은 리터럴을 제거하고
+        <span class="math">Φ(u)=f′(u)−f(u)/u</span>, <span class="math">Φ′(u)=f″(u)−f′(u)/u+f(u)/u²</span>를
+        <b>모든 Ω에 대해 f, f′, f″로부터 계산</b>합니다. KL은 그 산술이 1로 떨어질 뿐 —
+        검증: generic 계산이 기존 명시식과 ~1e-15 일치, <span class="math">Φ_KL=1</span>, <span class="math">Φ′_KL≈1e-15</span>(리터럴 0 아님).</p>
+      <h3>Part 3 전체 실험 — <code>run_part3.py</code></h3>
+      <p>JS Part 3 lab의 모든 패널 재현: α–peak 스윕 · C_Ω 통계 · 학습곡선 · 정책갭 막대 · π* vs π_θ · extreme off-policy ·
+        single-state std. 결과는 <b>📊 라이브 결과</b> 페이지에 표시됩니다.</p>
+    </section>
+
+    <!-- ───── R3 ───── -->
+    <section class="page" id="r3">
+      <h2 class="title">실험 검증 + 왜 KL은 0-분산인가</h2>
+      <div class="pagemeta">r3 · 2026-06-12</div>
+      <div class="q">요청: python 폴더 내 실험 결과를 검증. 그리고 KL도 샘플 기반이면 분산이 생기는지?</div>
+      <h3>검증 — <code>verify.py</code> 7개 체크 PASS</h3>
+      <p>argmax stationarity, 추정량 무편향, admissibility 경험 판정, Φ 상수성, Φ-form 분산, solver 불변량, 비균일 ref —
+        모두 통과(코드 수정 후 <code>python verify.py</code>가 회귀 테스트).</p>
+      <h3>왜 KL은 0-분산인가 (Φ-form)</h3>
+      <p>내부항 <span class="math">C<sub>Ω</sub>=E<sub>a~π</sub>[Φ(u<sub>a</sub>)]</span>, <span class="math">Φ=f′−f/u</span>.
+        KL은 <span class="math">Φ(u)=(ln u+1)−ln u=1</span> 이 모든 u에서 상수라, 매 샘플이 1 → <b>분산 0</b>.
+        “항상 샘플하지만 값이 일정”이 그대로 구현된 것이고, 상수를 박은 게 아니라 산술의 결과입니다.
+        non-KL은 Φ가 u에 따라 변해 <span class="math">Var<sub>π</sub>[Φ]/n &gt; 0</span> — 이게 C_Ω 통계·single-state 그림에 드러납니다.</p>
+      <p class="note">(이전 라운드에서 다룬 “eq15(Ω 동결)면 KL도 분산” 얘기는 헷갈림 방지를 위해 코드/문서에서 제거했습니다. 학습 추정량은 Φ-form 하나.)</p>
+    </section>
+
+    <!-- ───── R2 ───── -->
+    <section class="page" id="r2">
+      <h2 class="title">const_C 하드코딩 제거 + π_ref 일반화</h2>
+      <div class="pagemeta">r2 · 2026-06-12</div>
+      <div class="q">요청: KL이라고 const_C를 박지 말 것(불공정). π_ref 기본 action-uniform, 들어오면 그에 맞게.</div>
+      <h3>const_C 제거 — admissibility는 emerge</h3>
+      <p><code>const_C</code> 플래그와 <code>if KL: …</code> 분기를 전부 제거. KL도 동일 경로를 타고,
+        무잡음성은 <span class="math">Φ_KL≡1, Φ′_KL≡0</span> 에서 도출. <code>is_admissible</code>가
+        <span class="math">Var<sub>a</sub>[Φ]≈0</span> 을 경험적으로 검사 → KL만 True.</p>
+      <h3>π_ref 일반화</h3>
+      <p>모든 함수가 <code>ref=None</code>(uniform) 인자를 받고 <span class="math">u=π/ref</span>로 동작.
+        argmax는 임의 ref에서 도는 단일 ν-bisection 솔버로 통합. <code>None</code>/<code>(NA,)</code>/<code>(depth,SN,NA)</code> 수용.
+        검증: 비균일 ref에서도 C_KL=1.</p>
+    </section>
+
+    <!-- ───── R1 ───── -->
+    <section class="page" id="r1">
+      <h2 class="title">JS → Python 포팅 + c(s′) 검증</h2>
+      <div class="pagemeta">r1 · 2026-06-12</div>
+      <div class="q">요청: JS 위주 실험을 py 기반으로, c(s′)을 변형하는 부분이 어떻게 구현됐는지 확인.</div>
+      <p><code>math.js</code> + <code>task3-admissibility.js</code>를 Python 패키지로 포팅
+        (<code>regularizers / mdp / inner_term / dpo / run_part3</code>).</p>
+      <h3>c(s′) “변형” = <code>c_violation</code></h3>
+      <p>Eq 16이 action-indexed 내부량을 상태함수 c(s′)로 접는 건 s′가 생성 행동을 식별할 때(ε=0)만 유효.
+        ε&gt;0이면 <span class="math">post(a|s′)∝π<sub>b</sub>(a)P(s′|a)</span>의 사후 분산이 새며, 그 RMS를 ε에 대해 잰 것.
+        검증: violation(0)=0, violation(0.2)=0.293.</p>
+      <p class="note">(c(s′) probe 그림은 r8에서 전역 결과에서 제외했습니다 — <code>fig_cprobe</code>로 재생성 가능.)</p>
+    </section>
+
+  </main>
+</div>
+
+<script src="results_data.js" onerror="window.__noresults=true"></script>
+<script>
+const COLORS={kl:"#e84393",adiv:"#c455b8",rkl:"#9b59d0",js:"#6f6ae0",hel:"#5585e0",chi2:"#4fa8d8",euc:"#5bc8d6"};
+const SHORT={kl:"KL",adiv:"α-div",rkl:"RKL",js:"JS",hel:"Hel",chi2:"χ²",euc:"Euc"};
+const ORDER=["kl","adiv","rkl","js","hel","chi2","euc"];
+
+document.getElementById("legend").innerHTML = ORDER.map(k=>
+  `<span class="chip"><span class="dot" style="background:${COLORS[k]}"></span>${SHORT[k]}</span>`).join("");
+
+// page switching
+function show(id){
+  document.querySelectorAll("section.page").forEach(s=>s.classList.toggle("active", s.id===id));
+  document.querySelectorAll("[data-target]").forEach(n=>n.classList.toggle("active", n.dataset.target===id));
+  document.querySelector(".content").scrollTop=0;
+}
+document.querySelectorAll("[data-target]").forEach(n=>n.addEventListener("click",()=>show(n.dataset.target)));
+
+// lightbox: click any thumbnail to enlarge in-page (delegated, works for re-rendered thumbs)
+const _lb=document.getElementById("lightbox"), _lbimg=_lb.querySelector("img"), _lbcap=document.getElementById("lbcap");
+document.addEventListener("click",e=>{
+  const t=e.target.closest(".thumb");
+  if(t&&t.dataset.full){ _lbimg.src=t.dataset.full; _lbcap.textContent=t.dataset.cap||""; _lb.classList.add("open"); }
+});
+_lb.addEventListener("click",()=>_lb.classList.remove("open"));
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") _lb.classList.remove("open"); });
+
+// sync the DPO-setup page's dynamic values (data-meta) from the actual run meta
+if(window.RESULTS && window.RESULTS.meta){
+  const M=window.RESULTS.meta;
+  document.querySelectorAll("[data-meta]").forEach(el=>{ if(M[el.dataset.meta]!==undefined) el.textContent=M[el.dataset.meta]; });
+}
+
+// live results from window.RESULTS  (global panels + per-peak toggle)
+(function(){
+  const R=window.RESULTS, host=document.getElementById("live-body");
+  if(!R || !R.peaks){ return; }
+  const m=R.meta, col=k=>COLORS[k]||"#ccc";
+  const fig=(src,cap)=> src ? `<figure><img src="${src}"><figcaption>${cap}</figcaption></figure>` : "";
+  document.getElementById("run-meta").textContent =
+    `γ=${m.gamma}, ε=${m.eps}, depth=${m.depth}, peaks=${m.peaks.join(" / ")}, N_pairs=${m.npairs}, seeds=${m.seeds}, steps=${m.steps}`
+    + (m.n_mc_sweep?`, n_mc sweep=${m.n_mc_sweep[0]}…${m.n_mc_sweep[m.n_mc_sweep.length-1]}`:"");
+
+  const thumb=(src,cap)=> src ? `<div class="thumb" data-full="${src}" data-cap="${cap}"><img src="${src}"><span>${cap}</span></div>` : "";
+
+  // ----- GLOBAL panels (peak-independent): §4.2 inner-term variance (우선) -----
+  const gf=(R.global.figs)||{};
+  let g="<div class='panel'><h3 style='margin-top:0'>§4.2 inner-term 분산 (전역) · <span class='note'>그림 클릭 시 확대</span></h3>"
+    + "<p class='note'>admissibility의 가장 직접적 신호: Ĉ<sub>Ω</sub>의 분산이 <b>KL은 모든 n·H에서 0</b>, 비-KL은 "
+    + "single-state에서 <b>1/√n</b>, trajectory에서 <b>√(H−1)</b>로 누적.</p>"
+    + "<div class='warn' style='font-size:12.5px'><b>설정:</b> 모든 divergence가 <b>동일한 고정 정책 π</b>(softmax of N(0,1)·scale)를 공유 — "
+    + "<b>α·peak 캘리브레이션 없음, 학습 없음</b>. π에 각자의 Φ만 적용해 추정량 분산만 비교 (논문 §4.2 그대로). "
+    + "per-peak 패널은 별개의 학습 실험(peak-calibrated α).</div>"
+    + "<div class='fgrid'>"
+    + thumb(gf.single_state_var,"§4.2 Fig 3 — single-state: 값(±1σ) | std vs n")
+    + thumb(gf.trajectory_var,"§4.2 Fig 4 — trajectory: 합(±1σ) | std vs H")
+    + "</div></div>";
+
+  // ----- PEAK TOGGLE -----
+  const peaks=m.peaks.map(String);
+  const tog="<div class='toggle'>실험 결과 토글 (target peak): "
+    + peaks.map((p,i)=>`<button class="tbtn${i===0?' active':''}" data-peak="${p}">peak = ${p}</button>`).join("")
+    + "</div>";
+  host.innerHTML = g + tog + "<div id='peak-block'></div>";
+
+  function sweepTable(P){
+    const sw=P.nmc_sweep, nm0=sw.n_mc[0], nmN=sw.n_mc[sw.n_mc.length-1];
+    let h=`<table><thead><tr><th>Ω</th><th>α</th><th>on Δπ (n=${nm0})</th><th>on Δπ (n=${nmN})</th>`
+        + `<th>off Δπ (n=${nm0})</th><th>off Δπ (n=${nmN})</th><th>adm.</th></tr></thead><tbody>`;
+    ORDER.forEach(k=>{const c=P.calibration[k];
+      const o1=sw.on[k][nm0], oN=sw.on[k][nmN], f1=sw.off[k][nm0], fN=sw.off[k][nmN];
+      h+=`<tr><td><span class="dot" style="background:${col(k)}"></span> ${SHORT[k]}</td>`+
+         `<td>${c.alpha.toFixed(2)}</td><td>${o1.mean.toFixed(3)}</td><td>${oN.mean.toFixed(3)}</td>`+
+         `<td>${f1.mean.toFixed(3)}</td><td>${fN.mean.toFixed(3)}</td>`+
+         `<td><span class="tag ${c.admissible?'yes':'no'}">${c.admissible?'✓':'–'}</span></td></tr>`;});
+    return h+"</tbody></table>";
+  }
+  function renderPeak(p){
+    const P=R.peaks[p], F=P.figs;
+    let h=`<div class='panel'><h3 style='margin-top:0'>§4.3 · target peak = ${p}  <span class='note'>· n_mc 스윕 · on=π*_Ω 롤아웃 데이터, off=π_ref(uniform) 데이터 (둘 다 n_mc inner 샘플)</span></h3>`;
+    h+="<b>Δπ — n_mc=1 vs n_mc=최대 (on/off)</b> <span class='note'>KL은 n_mc에 평탄·최저, 비-KL은 n_mc↑에서 감소</span>"+sweepTable(P);
+    h+="<div class='fgrid'>"
+      + thumb(F.nmc_sweep,"§4.3 — Δπ vs n_mc (on | off), ±1σ")
+      + thumb(F.panels_on,"π* vs π_θ · on-policy (n_mc=1)")
+      + thumb(F.panels_off,"π* vs π_θ · off-policy (n_mc=1)")
+      + thumb(F.alpha_sweep,"α–peak sweep")
+      + thumb(F.cstats,"C_Ω stats (KL≈0)")
+      + "</div></div>";
+    document.getElementById("peak-block").innerHTML=h;
+  }
+  renderPeak(peaks[0]);
+  document.querySelectorAll(".tbtn").forEach(b=>b.addEventListener("click",()=>{
+    document.querySelectorAll(".tbtn").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active"); renderPeak(b.dataset.peak);
+  }));
+})();
+</script>
+</body>
+</html>

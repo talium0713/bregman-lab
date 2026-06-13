@@ -1,0 +1,7 @@
+{
+  "liveServer.settings.port": 5173,
+  "files.associations": { "*.js": "javascript" },
+  "javascript.preferences.importModuleSpecifierEnding": "js",
+  "editor.tabSize": 2,
+  "editor.formatOnSave": false
+}

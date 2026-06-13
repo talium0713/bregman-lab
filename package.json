@@ -1,0 +1,22 @@
+{
+  "name": "bregman-lab-suite",
+  "version": "1.0.0",
+  "description": "Interactive labs for the policy-deviation theorem, Legendre duality, and off-policy admissibility of KL divergence in regularized MDPs / DPO.",
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve . -l 5173",
+    "start": "python3 -m http.server 5173"
+  },
+  "keywords": [
+    "reinforcement-learning",
+    "bregman-divergence",
+    "DPO",
+    "RLHF",
+    "regularized-MDP",
+    "visualization"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
