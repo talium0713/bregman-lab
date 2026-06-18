@@ -242,7 +242,7 @@ def run_section43(peak, rng, n_mdp=3):
             data_on = make_dataset_policy(rewards, EPS, GAMMA, rng, NPAIRS, sol.pistar)   # π*_Ω rollouts
             for nm in NMC_SWEEP:
                 for sd in range(SEEDS):
-                    cfg = TrainConfig(gamma=GAMMA, steps=STEPS, batch=BATCH, grad_mode="A", n_mc=nm)
+                    cfg = TrainConfig(gamma=GAMMA, steps=STEPS, batch=BATCH, n_mc=nm)
                     _, gon, pon = train_one(rk, rewards, alphas[rk], data_on, cfg, EPS, rng)
                     _, gof, pof = train_one(rk, rewards, alphas[rk], data_off, cfg, EPS, rng)
                     raw["on"][rk][nm].append(gon); raw["off"][rk][nm].append(gof)

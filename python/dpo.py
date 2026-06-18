@@ -53,7 +53,6 @@ class TrainConfig:
     lr: float = 0.08
     batch: int = 16
     n_mc: int = 2
-    grad_mode: str = "A"        # "A" faithful | "B" scale-only
     off_policy: bool = False
 
 
@@ -201,35 +200,34 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
             acc_outer(tw, +1)
             acc_outer(tl, -1)
 
-            # A-direction: gradient through C_Ω(s') via the SAME a' samples (Φ').
-            # No KL guard: KL has Φ'(u)≡0, so its inner gradient is exactly 0 — computed, not skipped.
-            if cfg.grad_mode == "A":
-                def acc_inner(inner, sign):
-                    for (sn, l, acts) in inner:
-                        acts = np.asarray(acts)
-                        if acts.size == 0:
-                            continue
-                        pol = pols[l + 1][sn]
-                        rf = ref[l + 1, sn]
-                        nz = acts.size
-                        g = grad[l + 1, sn]                    # view; modified in place
-                        # ∂/∂θ_b of α·(1/n)Σ_aj integrand(u_aj):  scatter coeff to aj, minus pol·Σcoeff
-                        if R.is_euc:
-                            coeff = coef * sign * alpha * INNER_SIGN * (1.0 / nz) * pol[acts]
-                            np.add.at(g, acts, coeff)
-                            g -= pol * coeff.sum()
-                            for bb in range(NA):              # −∂Ω/∂θ_b (over all actions, not samples)
-                                dO = sum((pol[a2] - rf[a2]) * pol[a2] * ((1.0 if a2 == bb else 0.0) - pol[bb]) for a2 in range(NA))
-                                g[bb] += coef * sign * alpha * INNER_SIGN * (-dO)
-                        else:
-                            uu = np.maximum(pol[acts], 1e-12) / rf[acts]
-                            w = R.dPhi(uu) * (1.0 / rf[acts]) / nz     # ∂Φ(u_aj)/∂π via u=π/ref
-                            coeff = coef * sign * alpha * INNER_SIGN * w * pol[acts]
-                            np.add.at(g, acts, coeff)
-                            g -= pol * coeff.sum()
+            # gradient through C_Ω(s') via the SAME a' samples (Φ') — always computed (the only
+            # mode). KL has Φ'(u)≡0, so its inner gradient is exactly 0 — computed, not skipped.
+            def acc_inner(inner, sign):
+                for (sn, l, acts) in inner:
+                    acts = np.asarray(acts)
+                    if acts.size == 0:
+                        continue
+                    pol = pols[l + 1][sn]
+                    rf = ref[l + 1, sn]
+                    nz = acts.size
+                    g = grad[l + 1, sn]                    # view; modified in place
+                    # ∂/∂θ_b of α·(1/n)Σ_aj integrand(u_aj):  scatter coeff to aj, minus pol·Σcoeff
+                    if R.is_euc:
+                        coeff = coef * sign * alpha * INNER_SIGN * (1.0 / nz) * pol[acts]
+                        np.add.at(g, acts, coeff)
+                        g -= pol * coeff.sum()
+                        for bb in range(NA):              # −∂Ω/∂θ_b (over all actions, not samples)
+                            dO = sum((pol[a2] - rf[a2]) * pol[a2] * ((1.0 if a2 == bb else 0.0) - pol[bb]) for a2 in range(NA))
+                            g[bb] += coef * sign * alpha * INNER_SIGN * (-dO)
+                    else:
+                        uu = np.maximum(pol[acts], 1e-12) / rf[acts]
+                        w = R.dPhi(uu) * (1.0 / rf[acts]) / nz     # ∂Φ(u_aj)/∂π via u=π/ref
+                        coeff = coef * sign * alpha * INNER_SIGN * w * pol[acts]
+                        np.add.at(g, acts, coeff)
+                        g -= pol * coeff.sum()
 
-                acc_inner(iw, +1)
-                acc_inner(il, -1)
+            acc_inner(iw, +1)
+            acc_inner(il, -1)
 
         # Adam update
         t += 1

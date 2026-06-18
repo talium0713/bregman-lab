@@ -143,7 +143,7 @@ def nmc_sweep(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp, pr
             data_on = make_dataset_policy(rew, eps, GAMMA, rng, npairs, sol.pistar)
             for nm in nmc_list:
                 for sd in range(seeds):
-                    cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, grad_mode="A", n_mc=nm)
+                    cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm)
                     _, gon, _ = train_one(rk, rew, al[rk], data_on, cfg, eps, rng)
                     _, gof, _ = train_one(rk, rew, al[rk], data_off, cfg, eps, rng)
                     raw["on"][rk][nm].append(gon); raw["off"][rk][nm].append(gof)
@@ -330,7 +330,7 @@ with t4:
                             text=f"{regime}-policy · {REG[rk].label} ({i+1}/{len(REGKEYS)})")
                 sol = solve_dp(rk, rew, uniform_pis(depth), al[rk], GAMMA, eps)
                 data = make_dataset_policy(rew, eps, GAMMA, rng, npairs, sol.pistar) if regime == "on" else data_off
-                cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, grad_mode="A", n_mc=nmc_one)
+                cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nmc_one)
                 _, g, pol = train_one(rk, rew, al[rk], data, cfg, eps, rng)
                 star = [sol.pistar[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]
                 est = [pol[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]

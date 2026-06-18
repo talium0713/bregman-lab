@@ -4,7 +4,7 @@ import { $, el, makeSeg } from "../core/dom.js";
 export function initT3(){
 
   const GAMMA=0.9, STEPS=300, LR=0.08;
-  let nmc=2, npairs=600, nseeds=3, targetPeak=0.6, EPS=0.2, BATCH=16, gradMode="A", offPolicy=false, DEPTH=4;
+  let nmc=2, npairs=600, nseeds=3, targetPeak=0.6, EPS=0.2, BATCH=16, offPolicy=false, DEPTH=4;
   let lastRun=null;
   let rewards=newRewards(DEPTH);
   let dataset=null;   // shared preference pairs
@@ -76,7 +76,12 @@ export function initT3(){
   }
   function drawCStats(){
     const svg=$("t3-cstats");if(!svg)return;svg.innerHTML="";
-    const W=560,H=190,mL=46,mR=10,mT=18,mB=44;
+    const W=560,H=190,mL=46,mR=10,mT=30,mB=44;
+    /* legend (plain language): solid = state-to-state spread, dashed = 1-sample MC noise */
+    const legSw=(x,dash)=>{const r=el("rect",{x,y:6,width:12,height:9,fill:"#9b93a8",opacity:dash?0.4:0.9,rx:2});
+      if(dash){r.setAttribute("stroke","#ece7df");r.setAttribute("stroke-dasharray","2 2");r.setAttribute("stroke-width","0.7");}svg.appendChild(r);};
+    legSw(mL,false);svg.appendChild(el("text",{x:mL+16,y:14,fill:"#9b93a8","font-size":9},"C_Ω varies across states"));
+    legSw(mL+205,true);svg.appendChild(el("text",{x:mL+221,y:14,fill:"#9b93a8","font-size":9},"1-sample Monte-Carlo noise"));
     const stats=REGKEYS.map(rk=>({rk,...cStats(rk)}));
     const FLOOR=1e-4;
     const CEIL=Math.max(1e-2,...stats.flatMap(s=>[s.stateStd,s.mcSd]))*1.8;
@@ -198,7 +203,7 @@ export function initT3(){
         };
         accOuter(pair.w,+1);accOuter(pair.l,-1);
         /* A-direction: gradient through the inner term C_Ω(s'), via the SAME a' samples */
-        if(gradMode==="A"&&!R.constC){
+        if(!R.constC){
           const accInner=(inner,sign)=>{
             for(const{sn,l,as}of inner){
               const pol=pols[l+1][sn];
@@ -543,10 +548,6 @@ export function initT3(){
   $("t3-eps").addEventListener("input",e=>{EPS=parseFloat(e.target.value);$("t3-eps-v").textContent=EPS.toFixed(2);});
   $("t3-eps").addEventListener("change",()=>{makeDataset();calibrate();$("t3-status").textContent=`ε=${EPS.toFixed(2)} applied — transitions changed, so data was rebuilt and α recalibrated.`;});
   $("t3-bs").addEventListener("input",e=>{BATCH=Math.pow(2,parseInt(e.target.value));$("t3-bs-v").textContent=BATCH;});
-  $("t3-mode").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
-    $("t3-mode").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");gradMode=b.dataset.v;
-    $("t3-status").textContent=`gradient mode = ${gradMode} (${gradMode==="A"?"exact ∂Ĉ/∂θ propagation":"scale-only approximation"}). Run training to compare.`;
-  }));
   $("t3-offp").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
     $("t3-offp").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
     offPolicy=(b.dataset.v==="off");
@@ -554,8 +555,8 @@ export function initT3(){
     $("t3-nmc").style.opacity=offPolicy?0.4:1;
     const ct=$("t3-cstats-title");
     if(ct)ct.textContent=offPolicy
-      ? "C_Ω statistics — extreme off-policy: solid bar = spread across states, faint bar = |bias| proxy of the data-a' estimate (uniform a' vs π* expectation) (log scale)"
-      : "C_Ω statistics — at the calibrated π*_Ω · solid bar = spread across states std_s[C], faint bar = std of a 1-sample estimate (log scale)";
+      ? "Is the inner term C_Ω the same at every state?  solid = how much C_Ω varies state-to-state · dashed = |bias| of the single-data-a′ estimate (log). The admissible Ω stays ≈0; the rest are biased."
+      : "Is the inner term C_Ω the same at every state?  solid = how much C_Ω varies state-to-state · dashed = noise of a 1-sample Monte-Carlo estimate (log). The admissible Ω is ≈0 on both ⇒ computable from (s,a,s′) with no a′ sample; the rest vary AND are noisy.";
     $("t3-status").textContent=offPolicy
       ?"Extreme off-policy — inner term evaluated only at the data-recorded a' (1-sample, n_mc ignored). Sharpest demonstration that KL is the only divergence admissible from data alone."
       :"On-policy inner — resample n_mc fresh actions a' from π(·|s'). The n_mc slider matters again.";
@@ -566,7 +567,7 @@ export function initT3(){
     $("t3-status").textContent="New MDP and preference data generated, α recalibrated — all seven Ω share the same data.";
   });
   function summarize(out){
-    const o={meta:{targetPeak,EPS,BATCH,DEPTH,gradMode,offPolicy,npairs,nseeds,STEPS,GAMMA,LR},
+    const o={meta:{targetPeak,EPS,BATCH,DEPTH,offPolicy,npairs,nseeds,STEPS,GAMMA,LR},
       alphas:Object.fromEntries(REGKEYS.map(rk=>[rk,alphas[rk]])),
       gaps:{}};
     for(const nm of Object.keys(out)){o.gaps[nm]={};
@@ -596,7 +597,7 @@ export function initT3(){
       $("t3-status").textContent="Sweep done — KL bars stay flat across n_mc, non-KL bars fall as n_mc grows: the off-policy admissibility fingerprint.";
     });
   });
-  const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}_${gradMode}${offPolicy?"_offpol":""}`;
+  const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}${offPolicy?"_offpol":""}`;
   $("t3-dl-sweep").addEventListener("click",()=>dlSVG("t3-sweep-plot",`alpha_peak_sweep_${stamp()}.svg`));
   $("t3-dl-cprobe").addEventListener("click",()=>dlSVG("t3-cprobe",`c_admissibility_probe_${stamp()}.svg`));
   $("t3-cconc")&&$("t3-cconc").addEventListener("input",e=>{cConc=parseFloat(e.target.value);$("t3-cconc-v").textContent=cConc.toFixed(2);drawCProbe();});

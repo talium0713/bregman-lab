@@ -184,7 +184,7 @@
       <div class="sl" style="flex:1.3"><div class="lab"><span class="math">target peak</span><span class="mono" id="t3-peak-v">0.60</span></div><input type="range" id="t3-peak" min="0.4" max="0.9" step="0.01" value="0.6" style="accent-color:var(--paper)"></div>
       <div class="sl"><div class="lab"><span class="math">n_mc</span><span class="mono" id="t3-nmc-v">2</span></div><input type="range" id="t3-nmc" min="1" max="16" step="1" value="2" style="accent-color:var(--star)"></div>
       <div class="sl"><div class="lab"><span class="math">N_pairs</span><span class="mono" id="t3-np-v">600</span></div><input type="range" id="t3-np" min="200" max="10000" step="200" value="600" style="accent-color:var(--gold)"></div>
-      <div class="sl"><div class="lab"><span class="math">seeds</span><span class="mono" id="t3-sd-v">3</span></div><input type="range" id="t3-sd" min="1" max="10" step="1" value="3" style="accent-color:var(--pi)"></div>
+      <div class="sl"><div class="lab"><span class="math">seeds</span><span class="mono" id="t3-sd-v">3</span></div><input type="range" id="t3-sd" min="1" max="100" step="1" value="3" style="accent-color:var(--pi)"></div>
       <div class="sl"><div class="lab"><span class="math">depth (L)</span><span class="mono" id="t3-dep-v">4</span></div><input type="range" id="t3-dep" min="3" max="8" step="1" value="4" style="accent-color:var(--hel)"></div>
       <div class="sl"><div class="lab"><span class="math">ε (transition noise)</span><span class="mono" id="t3-eps-v">0.20</span></div><input type="range" id="t3-eps" min="0" max="0.6" step="0.02" value="0.2" style="accent-color:var(--euc)"></div>
       <div class="sl"><div class="lab"><span class="math">batch (2ⁿ)</span><span class="mono" id="t3-bs-v">16</span></div><input type="range" id="t3-bs" min="0" max="6" step="1" value="4" style="accent-color:var(--adiv)"></div>
@@ -198,10 +198,6 @@
       <b>ε</b>: chance a chosen action lands in a different next state. ·
       <b>batch</b>: SGD minibatch; smaller keeps estimator noise from averaging away.
     </div>
-    <div class="seg" id="t3-mode" style="max-width:420px">
-      <button data-v="A" class="on">gradient: A · exact ∂Ĉ/∂θ</button>
-      <button data-v="B">gradient: B · scale-only (approx)</button>
-    </div>
     <div class="seg" id="t3-offp" style="max-width:460px">
       <button data-v="on" class="on">inner term: on-policy · resample a' from π(·|s')</button>
       <button data-v="off">inner term: extreme off-policy · use data a' only</button>
@@ -212,7 +208,7 @@
       <svg id="t3-mdp" viewBox="0 0 560 200" style="width:100%"></svg>
     </div>
     <div class="card" style="padding:12px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-cstats-title">C_Ω statistics — at the calibrated π*_Ω · solid bar = spread across states std_s[C], faint bar = std of a 1-sample estimate (log scale). KL is exactly 0 on both.</div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-cstats-title">Is the inner term C_Ω the same at every state?  solid = how much C_Ω varies state-to-state · dashed = noise of a 1-sample Monte-Carlo estimate (log). The admissible Ω is ≈0 on both ⇒ computable from (s,a,s′) with no a′ sample; the rest vary AND are noisy.</div>
       <svg id="t3-cstats" viewBox="0 0 560 190" style="width:100%"></svg>
     </div>
     <div class="card" style="padding:12px">

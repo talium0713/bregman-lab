@@ -100,7 +100,7 @@ print("\n[7] non-uniform π_ref end-to-end (calibrate → solve → train)")
 ref = np.array([0.5, 0.35, 0.15])
 rewards = new_rewards(3, rng)
 data = make_dataset(rewards, 0.2, 0.9, rng, n=400)
-cfg = TrainConfig(gamma=0.9, steps=60, batch=16, grad_mode="A")
+cfg = TrainConfig(gamma=0.9, steps=60, batch=16)
 for rk in ("kl", "js", "euc"):
     sol = solve_dp(rk, rewards, uniform_pis(3), 1.0, 0.9, 0.2, ref)
     _, g, _ = train_one(rk, rewards, 1.0, data[:200], cfg, 0.2, rng, ref)
