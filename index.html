@@ -221,25 +221,26 @@
         <button class="btn" id="t3-dl-cprobe" style="flex:0 0 auto;padding:5px 10px;font-size:11px">Save SVG</button>
       </div>
       <div style="font-size:10.5px;color:var(--dim);line-height:1.6;margin-bottom:8px">
-        Theorem 2 allows a per-state scalar c(s′) multiplying the whole regularizer. We give KL a non-uniform
-        within-layer weight (set the three values below) and ask whether the inner term C<sub>Ω</sub>(s′) is
-        still computable from a logged transition (s, a, s′) alone. The curve is the irreducible inner-term error
-        when predicting it from (s, a, s′) — i.e. the admissibility violation — as transition noise ε varies.
+        Theorem 2 allows a per-state scalar c(s′) multiplying the whole regularizer. Rather than hand-pick the
+        inner values, we <b>sample them from a Dirichlet</b> over the indices (state for c(s′), state/action for
+        c(s′,a′)) and average the admissibility violation over many draws — so the result reflects arbitrary inner
+        values, not a tuned one. The curve is the irreducible inner-term error when predicting it from a logged
+        transition (s, a, s′), as transition noise ε varies.
       </div>
       <div class="row" style="margin-bottom:6px">
-        <div class="sl"><div class="lab"><span class="math">c₀ (state/action 0)</span><span class="mono" id="t3-c0-v">0.60</span></div><input type="range" id="t3-c0" min="0.2" max="2" step="0.05" value="0.6" style="accent-color:var(--chi)"></div>
-        <div class="sl"><div class="lab"><span class="math">c₁ (state/action 1)</span><span class="mono" id="t3-c1-v">1.00</span></div><input type="range" id="t3-c1" min="0.2" max="2" step="0.05" value="1.0" style="accent-color:var(--chi)"></div>
-        <div class="sl"><div class="lab"><span class="math">c₂ (state/action 2)</span><span class="mono" id="t3-c2-v">1.60</span></div><input type="range" id="t3-c2" min="0.2" max="2" step="0.05" value="1.6" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">Dirichlet concentration</span><span class="mono" id="t3-cconc-v">1.00</span></div><input type="range" id="t3-cconc" min="0.1" max="5" step="0.1" value="1.0" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">draws to average</span><span class="mono" id="t3-cdraws-v">200</span></div><input type="range" id="t3-cdraws" min="20" max="500" step="20" value="200" style="accent-color:var(--chi)"></div>
+        <button id="t3-cresample" style="align-self:flex-end;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer">↻ resample</button>
       </div>
       <div class="seg" id="t3-cidx" style="max-width:420px;margin-bottom:8px">
         <button data-v="both" class="on">show both</button>
         <button data-v="state">state-indexed c(s′) only</button>
-        <button data-v="action">action-indexed c(a′) only</button>
+        <button data-v="action">action-indexed c(s′,a′) only</button>
       </div>
       <svg id="t3-cprobe" viewBox="0 0 560 230" style="width:100%"></svg>
       <div style="font-size:10.5px;color:var(--faint);line-height:1.6;margin-top:6px">
         <b style="color:var(--chi)">state-indexed c(s′)</b>: depends only on the next state → recoverable from the data, violation ≡ 0 at every ε (admissible). ·
-        <b style="color:var(--rkl)">action-indexed c(a′)</b>: depends on the next action → at ε=0 the action is pinned by the state (a′↔s′ bijective) so it coincides with state-indexing and stays admissible; as ε grows the action is no longer recoverable from s′ and the violation rises.
+        <b style="color:var(--rkl)">action-indexed c(s′,a′)</b> (Dirichlet-sampled): depends on the action → at ε=0 the action is pinned by the state (a′↔s′ bijective) so it coincides with state-indexing and stays admissible; as ε grows the action is no longer recoverable from s′ and the violation rises (averaged over the Dirichlet draws).
       </div>
     </div>
     <div class="card" style="padding:12px">

@@ -372,19 +372,34 @@ export function initT3(){
     });
   }
 
-  /* ── c(s') admissibility probe: irreducible inner-term error from (s,a,s') alone vs ε ── */
-  let CVALS=[0.6,1.0,1.6], cShowMode="both";
-  function cViolation(eps){
+  /* ── c(s') admissibility probe: irreducible inner-term error from (s,a,s') alone vs ε.
+     The inner values are no longer hand-set; they are SAMPLED from a Dirichlet over the indices
+     (state for c(s′), state/action for c(s′,a′)) and the violation is averaged over many draws. ── */
+  let cConc=1.0, cDraws=200, cShowMode="both";
+  function _gauss(){const u=1-Math.random(),v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+  function _gamma(a){ // Marsaglia–Tsang, shape a>0, scale 1
+    if(a<1)return _gamma(1+a)*Math.pow(Math.random(),1/a);
+    const d=a-1/3,c=1/Math.sqrt(9*d);
+    for(;;){let x,v;do{x=_gauss();v=1+c*x;}while(v<=0);v=v*v*v;const u=Math.random();
+      if(u<1-0.0331*x*x*x*x)return d*v;
+      if(Math.log(u)<0.5*x*x+d*(1-v+Math.log(v)))return d*v;}
+  }
+  function _dirichlet(conc,k){const g=[];let s=0;for(let i=0;i<k;i++){const x=_gamma(conc);g.push(x);s+=x;}return g.map(x=>x/s*k);}
+  function cViolationFrom(CV,eps){ // RMS posterior spread of action-indexed CV given only s'
     const pa=[1/3,1/3,1/3];
     const psp=[0,1,2].map(sp=>[0,1,2].reduce((acc,a)=>acc+pa[a]*transP(a,eps)[sp],0));
     let V=0;
     for(let sp=0;sp<SN;sp++){
       const w=[0,1,2].map(a=>pa[a]*transP(a,eps)[sp]);const Z=w[0]+w[1]+w[2];
       const post=w.map(x=>x/Z);
-      let E=0,E2=0;for(let a=0;a<SN;a++){E+=post[a]*CVALS[a];E2+=post[a]*CVALS[a]*CVALS[a];}
+      let E=0,E2=0;for(let a=0;a<SN;a++){E+=post[a]*CV[a];E2+=post[a]*CV[a]*CV[a];}
       V+=psp[sp]*Math.max(E2-E*E,0);
     }
     return Math.sqrt(V);
+  }
+  function cViolation(eps){ // average over cDraws Dirichlet-sampled inner values
+    let acc=0;for(let d=0;d<cDraws;d++)acc+=cViolationFrom(_dirichlet(cConc,SN),eps);
+    return acc/cDraws;
   }
   function drawCProbe(){
     const svg=$("t3-cprobe");if(!svg)return;svg.innerHTML="";
@@ -418,9 +433,9 @@ export function initT3(){
     svg.appendChild(el("text",{x:(mL+W-mR)/2,y:H-6,fill:"#9b93a8","font-size":10,"text-anchor":"middle"},"transition noise ε"));
     const yl=el("text",{x:12,y:mT+6,fill:"#6a6378","font-size":9},"violation");yl.setAttribute("class","math");svg.appendChild(yl);
     if(showState){svg.appendChild(el("line",{x1:mL+8,y1:mT+8,x2:mL+24,y2:mT+8,stroke:"#58c08a","stroke-width":2.6}));
-      svg.appendChild(el("text",{x:mL+28,y:mT+11,fill:"#9b93a8","font-size":9.5},"state-indexed c(s′)"));}
-    if(showAction){svg.appendChild(el("line",{x1:mL+160,y1:mT+8,x2:mL+176,y2:mT+8,stroke:"#9b59d0","stroke-width":2.6}));
-      svg.appendChild(el("text",{x:mL+180,y:mT+11,fill:"#9b93a8","font-size":9.5},"action-indexed c(a′)"));}
+      svg.appendChild(el("text",{x:mL+28,y:mT+11,fill:"#9b93a8","font-size":9.5},"state-indexed c(s′) — admissible"));}
+    if(showAction){svg.appendChild(el("line",{x1:mL+200,y1:mT+8,x2:mL+216,y2:mT+8,stroke:"#9b59d0","stroke-width":2.6}));
+      svg.appendChild(el("text",{x:mL+220,y:mT+11,fill:"#9b93a8","font-size":9.5},`c(s′,a′) — Dirichlet (α=${cConc.toFixed(1)}, ${cDraws} draws)`));}
   }
 
   function peakOf(rk,al){
@@ -584,9 +599,9 @@ export function initT3(){
   const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}_${gradMode}${offPolicy?"_offpol":""}`;
   $("t3-dl-sweep").addEventListener("click",()=>dlSVG("t3-sweep-plot",`alpha_peak_sweep_${stamp()}.svg`));
   $("t3-dl-cprobe").addEventListener("click",()=>dlSVG("t3-cprobe",`c_admissibility_probe_${stamp()}.svg`));
-  ["c0","c1","c2"].forEach((id,k)=>{
-    $("t3-"+id).addEventListener("input",e=>{CVALS[k]=parseFloat(e.target.value);$("t3-"+id+"-v").textContent=CVALS[k].toFixed(2);drawCProbe();});
-  });
+  $("t3-cconc")&&$("t3-cconc").addEventListener("input",e=>{cConc=parseFloat(e.target.value);$("t3-cconc-v").textContent=cConc.toFixed(2);drawCProbe();});
+  $("t3-cdraws")&&$("t3-cdraws").addEventListener("input",e=>{cDraws=parseInt(e.target.value);$("t3-cdraws-v").textContent=cDraws;drawCProbe();});
+  $("t3-cresample")&&$("t3-cresample").addEventListener("click",drawCProbe);
   $("t3-cidx").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
     $("t3-cidx").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
     cShowMode=b.dataset.v;drawCProbe();

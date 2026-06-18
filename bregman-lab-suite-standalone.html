@@ -293,25 +293,26 @@
         <button class="btn" id="t3-dl-cprobe" style="flex:0 0 auto;padding:5px 10px;font-size:11px">Save SVG</button>
       </div>
       <div style="font-size:10.5px;color:var(--dim);line-height:1.6;margin-bottom:8px">
-        Theorem 2 allows a per-state scalar c(s′) multiplying the whole regularizer. We give KL a non-uniform
-        within-layer weight (set the three values below) and ask whether the inner term C<sub>Ω</sub>(s′) is
-        still computable from a logged transition (s, a, s′) alone. The curve is the irreducible inner-term error
-        when predicting it from (s, a, s′) — i.e. the admissibility violation — as transition noise ε varies.
+        Theorem 2 allows a per-state scalar c(s′) multiplying the whole regularizer. Rather than hand-pick the
+        inner values, we <b>sample them from a Dirichlet</b> over the indices (state for c(s′), state/action for
+        c(s′,a′)) and average the admissibility violation over many draws — so the result reflects arbitrary inner
+        values, not a tuned one. The curve is the irreducible inner-term error when predicting it from a logged
+        transition (s, a, s′), as transition noise ε varies.
       </div>
       <div class="row" style="margin-bottom:6px">
-        <div class="sl"><div class="lab"><span class="math">c₀ (state/action 0)</span><span class="mono" id="t3-c0-v">0.60</span></div><input type="range" id="t3-c0" min="0.2" max="2" step="0.05" value="0.6" style="accent-color:var(--chi)"></div>
-        <div class="sl"><div class="lab"><span class="math">c₁ (state/action 1)</span><span class="mono" id="t3-c1-v">1.00</span></div><input type="range" id="t3-c1" min="0.2" max="2" step="0.05" value="1.0" style="accent-color:var(--chi)"></div>
-        <div class="sl"><div class="lab"><span class="math">c₂ (state/action 2)</span><span class="mono" id="t3-c2-v">1.60</span></div><input type="range" id="t3-c2" min="0.2" max="2" step="0.05" value="1.6" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">Dirichlet concentration</span><span class="mono" id="t3-cconc-v">1.00</span></div><input type="range" id="t3-cconc" min="0.1" max="5" step="0.1" value="1.0" style="accent-color:var(--chi)"></div>
+        <div class="sl"><div class="lab"><span class="math">draws to average</span><span class="mono" id="t3-cdraws-v">200</span></div><input type="range" id="t3-cdraws" min="20" max="500" step="20" value="200" style="accent-color:var(--chi)"></div>
+        <button id="t3-cresample" style="align-self:flex-end;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer">↻ resample</button>
       </div>
       <div class="seg" id="t3-cidx" style="max-width:420px;margin-bottom:8px">
         <button data-v="both" class="on">show both</button>
         <button data-v="state">state-indexed c(s′) only</button>
-        <button data-v="action">action-indexed c(a′) only</button>
+        <button data-v="action">action-indexed c(s′,a′) only</button>
       </div>
       <svg id="t3-cprobe" viewBox="0 0 560 230" style="width:100%"></svg>
       <div style="font-size:10.5px;color:var(--faint);line-height:1.6;margin-top:6px">
         <b style="color:var(--chi)">state-indexed c(s′)</b>: depends only on the next state → recoverable from the data, violation ≡ 0 at every ε (admissible). ·
-        <b style="color:var(--rkl)">action-indexed c(a′)</b>: depends on the next action → at ε=0 the action is pinned by the state (a′↔s′ bijective) so it coincides with state-indexing and stays admissible; as ε grows the action is no longer recoverable from s′ and the violation rises.
+        <b style="color:var(--rkl)">action-indexed c(s′,a′)</b> (Dirichlet-sampled): depends on the action → at ε=0 the action is pinned by the state (a′↔s′ bijective) so it coincides with state-indexing and stays admissible; as ε grows the action is no longer recoverable from s′ and the violation rises (averaged over the Dirichlet draws).
       </div>
     </div>
     <div class="card" style="padding:12px">
@@ -1316,19 +1317,34 @@ function initT3(){
     });
   }
 
-  /* ── c(s') admissibility probe: irreducible inner-term error from (s,a,s') alone vs ε ── */
-  let CVALS=[0.6,1.0,1.6], cShowMode="both";
-  function cViolation(eps){
+  /* ── c(s') admissibility probe: irreducible inner-term error from (s,a,s') alone vs ε.
+     The inner values are no longer hand-set; they are SAMPLED from a Dirichlet over the indices
+     (state for c(s′), state/action for c(s′,a′)) and the violation is averaged over many draws. ── */
+  let cConc=1.0, cDraws=200, cShowMode="both";
+  function _gauss(){const u=1-Math.random(),v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+  function _gamma(a){ // Marsaglia–Tsang, shape a>0, scale 1
+    if(a<1)return _gamma(1+a)*Math.pow(Math.random(),1/a);
+    const d=a-1/3,c=1/Math.sqrt(9*d);
+    for(;;){let x,v;do{x=_gauss();v=1+c*x;}while(v<=0);v=v*v*v;const u=Math.random();
+      if(u<1-0.0331*x*x*x*x)return d*v;
+      if(Math.log(u)<0.5*x*x+d*(1-v+Math.log(v)))return d*v;}
+  }
+  function _dirichlet(conc,k){const g=[];let s=0;for(let i=0;i<k;i++){const x=_gamma(conc);g.push(x);s+=x;}return g.map(x=>x/s*k);}
+  function cViolationFrom(CV,eps){ // RMS posterior spread of action-indexed CV given only s'
     const pa=[1/3,1/3,1/3];
     const psp=[0,1,2].map(sp=>[0,1,2].reduce((acc,a)=>acc+pa[a]*transP(a,eps)[sp],0));
     let V=0;
     for(let sp=0;sp<SN;sp++){
       const w=[0,1,2].map(a=>pa[a]*transP(a,eps)[sp]);const Z=w[0]+w[1]+w[2];
       const post=w.map(x=>x/Z);
-      let E=0,E2=0;for(let a=0;a<SN;a++){E+=post[a]*CVALS[a];E2+=post[a]*CVALS[a]*CVALS[a];}
+      let E=0,E2=0;for(let a=0;a<SN;a++){E+=post[a]*CV[a];E2+=post[a]*CV[a]*CV[a];}
       V+=psp[sp]*Math.max(E2-E*E,0);
     }
     return Math.sqrt(V);
+  }
+  function cViolation(eps){ // average over cDraws Dirichlet-sampled inner values
+    let acc=0;for(let d=0;d<cDraws;d++)acc+=cViolationFrom(_dirichlet(cConc,SN),eps);
+    return acc/cDraws;
   }
   function drawCProbe(){
     const svg=$("t3-cprobe");if(!svg)return;svg.innerHTML="";
@@ -1362,9 +1378,9 @@ function initT3(){
     svg.appendChild(el("text",{x:(mL+W-mR)/2,y:H-6,fill:"#9b93a8","font-size":10,"text-anchor":"middle"},"transition noise ε"));
     const yl=el("text",{x:12,y:mT+6,fill:"#6a6378","font-size":9},"violation");yl.setAttribute("class","math");svg.appendChild(yl);
     if(showState){svg.appendChild(el("line",{x1:mL+8,y1:mT+8,x2:mL+24,y2:mT+8,stroke:"#58c08a","stroke-width":2.6}));
-      svg.appendChild(el("text",{x:mL+28,y:mT+11,fill:"#9b93a8","font-size":9.5},"state-indexed c(s′)"));}
-    if(showAction){svg.appendChild(el("line",{x1:mL+160,y1:mT+8,x2:mL+176,y2:mT+8,stroke:"#9b59d0","stroke-width":2.6}));
-      svg.appendChild(el("text",{x:mL+180,y:mT+11,fill:"#9b93a8","font-size":9.5},"action-indexed c(a′)"));}
+      svg.appendChild(el("text",{x:mL+28,y:mT+11,fill:"#9b93a8","font-size":9.5},"state-indexed c(s′) — admissible"));}
+    if(showAction){svg.appendChild(el("line",{x1:mL+200,y1:mT+8,x2:mL+216,y2:mT+8,stroke:"#9b59d0","stroke-width":2.6}));
+      svg.appendChild(el("text",{x:mL+220,y:mT+11,fill:"#9b93a8","font-size":9.5},`c(s′,a′) — Dirichlet (α=${cConc.toFixed(1)}, ${cDraws} draws)`));}
   }
 
   function peakOf(rk,al){
@@ -1528,9 +1544,9 @@ function initT3(){
   const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}_${gradMode}${offPolicy?"_offpol":""}`;
   $("t3-dl-sweep").addEventListener("click",()=>dlSVG("t3-sweep-plot",`alpha_peak_sweep_${stamp()}.svg`));
   $("t3-dl-cprobe").addEventListener("click",()=>dlSVG("t3-cprobe",`c_admissibility_probe_${stamp()}.svg`));
-  ["c0","c1","c2"].forEach((id,k)=>{
-    $("t3-"+id).addEventListener("input",e=>{CVALS[k]=parseFloat(e.target.value);$("t3-"+id+"-v").textContent=CVALS[k].toFixed(2);drawCProbe();});
-  });
+  $("t3-cconc")&&$("t3-cconc").addEventListener("input",e=>{cConc=parseFloat(e.target.value);$("t3-cconc-v").textContent=cConc.toFixed(2);drawCProbe();});
+  $("t3-cdraws")&&$("t3-cdraws").addEventListener("input",e=>{cDraws=parseInt(e.target.value);$("t3-cdraws-v").textContent=cDraws;drawCProbe();});
+  $("t3-cresample")&&$("t3-cresample").addEventListener("click",drawCProbe);
   $("t3-cidx").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
     $("t3-cidx").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
     cShowMode=b.dataset.v;drawCProbe();
