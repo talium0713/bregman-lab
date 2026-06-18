@@ -36,6 +36,15 @@ import numpy as np
 from regularizers import REG, softmax3
 from mdp import transP, solve_dp, uniform_pis, resolve_ref, SN, NA
 
+# Sign of the inner term C_Ω in the trajectory score. Telescoping the Eq-11 implicit reward
+# (β(s) = V* − αC_Ω, i.e. inner_term.py Eq 14: r = α[∇Ω]_a + β − γα·E[C_Ω(s')] − γE[β(s')]) puts
+# C_Ω into the trajectory score with a NEGATIVE coefficient:
+#     score(τ) = Σ_t α[∇Ω(π)]_{a_t}  −  α Σ_t C_Ω(π(·|s_{t+1})).
+# (γ dropped: the score is undiscounted, consistent with the chosen-action term — the γ→1 limit
+#  of Eq 14.)  KL is unaffected: Φ_KL≡1 is constant ⇒ cancels in d=S_w−S_l, and Φ'_KL≡0 zeroes
+#  its inner gradient, so the sign is invisible to KL.
+INNER_SIGN = -1.0
+
 
 @dataclass
 class TrainConfig:
@@ -165,7 +174,7 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
             if sn >= 0:
                 a_data = trans[i + 1][2] if i + 1 < len(trans) else None
                 C, acts = draw_inner(pols[l + 1][sn], a_data, ref[l + 1, sn])
-                sc += alpha * C
+                sc += alpha * INNER_SIGN * C
                 inner.append((sn, l, acts))
         return sc, inner
 
@@ -206,16 +215,16 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
                         g = grad[l + 1, sn]                    # view; modified in place
                         # ∂/∂θ_b of α·(1/n)Σ_aj integrand(u_aj):  scatter coeff to aj, minus pol·Σcoeff
                         if R.is_euc:
-                            coeff = coef * sign * alpha * (1.0 / nz) * pol[acts]
+                            coeff = coef * sign * alpha * INNER_SIGN * (1.0 / nz) * pol[acts]
                             np.add.at(g, acts, coeff)
                             g -= pol * coeff.sum()
                             for bb in range(NA):              # −∂Ω/∂θ_b (over all actions, not samples)
                                 dO = sum((pol[a2] - rf[a2]) * pol[a2] * ((1.0 if a2 == bb else 0.0) - pol[bb]) for a2 in range(NA))
-                                g[bb] += coef * sign * alpha * (-dO)
+                                g[bb] += coef * sign * alpha * INNER_SIGN * (-dO)
                         else:
                             uu = np.maximum(pol[acts], 1e-12) / rf[acts]
                             w = R.dPhi(uu) * (1.0 / rf[acts]) / nz     # ∂Φ(u_aj)/∂π via u=π/ref
-                            coeff = coef * sign * alpha * w * pol[acts]
+                            coeff = coef * sign * alpha * INNER_SIGN * w * pol[acts]
                             np.add.at(g, acts, coeff)
                             g -= pol * coeff.sum()
 

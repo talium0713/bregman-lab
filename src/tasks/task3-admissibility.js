@@ -10,12 +10,18 @@ export function initT3(){
   let dataset=null;   // shared preference pairs
   let alphas=null;    // calibrated α per divergence (peak-matched)
   let running=false;
+  let refPol=null;    // π_ref over actions: null → uniform; set a (DEPTH,SN,3) array for non-uniform ref
+  const refOf=(l,s)=>refPol?refPol[l][s]:[1/3,1/3,1/3];
+  /* sign of the inner term C_Ω in the trajectory score: telescoping Eq 11 (β=V*−αC_Ω) gives a
+     NEGATIVE coefficient, score = Σ α[∇Ω]_a − α Σ C_Ω(π(·|s')). γ dropped (undiscounted score).
+     KL unaffected (constC ⇒ C=0 here, and Φ'_KL≡0). */
+  const ISIGN=-1;
 
   const uniformPis=()=>Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[1/3,1/3,1/3]));
 
   /* ── step 1–2: α calibration — match mean over states of max_a π*(a|s) ── */
   function peakiness(rk,al){
-    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH);
+    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH,refPol);
     let m=0;for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)m+=Math.max(...sol.pistar[l][s]);
     return m/(DEPTH*SN);
   }
@@ -44,17 +50,18 @@ export function initT3(){
   /* ── C_Ω statistics at calibrated π*_Ω: π-dependence (state spread) & MC noise ── */
   function cStats(rk){
     const R=REG[rk];
-    const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH);
+    const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH,refPol);
     const Cs=[],Sds=[];
     for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++){
       const p=sol.pistar[l][s].map(x=>Math.max(x,1e-9));
+      const ref=refOf(l,s);
       if(R.constC){Cs.push(1);Sds.push(0);continue;}
-      let E=0,E2=0,Euni=0;
+      let E=0,E2=0,Euni=0;   // Euni = behavior (uniform) expectation of Φ — data action ~ uniform, ref-independent
       if(rk==="euc"){
-        for(let a=0;a<3;a++){const x=p[a]-1/3;E+=p[a]*x;E2+=p[a]*x*x;Euni+=(1/3)*x;}
-        Cs.push(E-R.omega(p));
+        for(let a=0;a<3;a++){const x=p[a]-ref[a];E+=p[a]*x;E2+=p[a]*x*x;Euni+=(1/3)*x;}
+        Cs.push(E-R.omega(p,ref));
       }else{
-        for(let a=0;a<3;a++){const ph=R.Phi(3*p[a]);E+=p[a]*ph;E2+=p[a]*ph*ph;Euni+=(1/3)*ph;}
+        for(let a=0;a<3;a++){const ph=R.Phi(p[a]/ref[a]);E+=p[a]*ph;E2+=p[a]*ph*ph;Euni+=(1/3)*ph;}
         Cs.push(E);
       }
       /* off-policy: data action ~ uniform behavior; bias = |E_uniform[Φ] − E_π*[Φ]| */
@@ -128,7 +135,7 @@ export function initT3(){
   /* ── step 3: DPO training for one (regK, seed, nmc) at calibrated α ── */
   function trainOne(regK, nmcUse, data){
     const R=REG[regK], aReg=alphas[regK];
-    const sol=solveDP(regK,rewards,uniformPis(),aReg,GAMMA,EPS,DEPTH);
+    const sol=solveDP(regK,rewards,uniformPis(),aReg,GAMMA,EPS,DEPTH,refPol);
     const tgt=sol.pistar;
     const th=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[rnd(-0.05,0.05),rnd(-0.05,0.05),rnd(-0.05,0.05)]));
     const m=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
@@ -144,17 +151,17 @@ export function initT3(){
     };
     /* inner term C_Ω(s'). on-policy: draw n_mc actions from π(·|s').
        off-policy (extreme): use the single data-recorded next action a'_data (no resampling). */
-    const drawInner=(pol,aData)=>{
+    const drawInner=(pol,aData,ref)=>{
       if(R.constC)return{C:0,as:[]}; // KL: C_Ω ≡ const → no estimation, no noise, mode-invariant
       if(offPolicy){
         const aj=aData;
         if(aj==null)return{C:0,as:[]}; // terminal: no next action recorded
-        const phi = regK==="euc" ? (pol[aj]-1/3) : R.Phi(3*Math.max(pol[aj],1e-12));
-        return{C: regK==="euc" ? phi-R.omega(pol) : phi, as:[aj]};
+        const phi = regK==="euc" ? (pol[aj]-ref[aj]) : R.Phi(Math.max(pol[aj],1e-12)/ref[aj]);
+        return{C: regK==="euc" ? phi-R.omega(pol,ref) : phi, as:[aj]};
       }
       const as=[];let e=0;
-      if(regK==="euc"){for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=pol[aj]-1/3;}return{C:e/nmcUse-R.omega(pol),as};}
-      for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=R.Phi(3*Math.max(pol[aj],1e-12));}
+      if(regK==="euc"){for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=pol[aj]-ref[aj];}return{C:e/nmcUse-R.omega(pol,ref),as};}
+      for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=R.Phi(Math.max(pol[aj],1e-12)/ref[aj]);}
       return{C:e/nmcUse,as};
     };
     /* score a trajectory: deterministic part (exact) + inner part; cache inner samples.
@@ -163,11 +170,11 @@ export function initT3(){
       let sc=0;const inner=[];
       for(let i=0;i<trans.length;i++){
         const{l,s,a,sn}=trans[i];
-        sc+=aReg*R.gradDPO(pols[l][s])[a];
+        sc+=aReg*R.gradDPO(pols[l][s],refOf(l,s))[a];
         if(sn>=0){
           const aData=(i+1<trans.length)?trans[i+1].a:null;
-          const di=drawInner(pols[l+1][sn], aData);
-          sc+=aReg*di.C;
+          const di=drawInner(pols[l+1][sn], aData, refOf(l+1,sn));
+          sc+=aReg*ISIGN*di.C;
           inner.push({sn,l,as:di.as});
         }
       }
@@ -186,7 +193,7 @@ export function initT3(){
         const accOuter=(trans,sign)=>{
           for(const{l,s,a}of trans){
             const pol=pols[l][s];
-            for(let bb=0;bb<3;bb++)grad[l][s][bb]+=coef*sign*aReg*R.dGdTheta(pol,a,bb);
+            for(let bb=0;bb<3;bb++)grad[l][s][bb]+=coef*sign*aReg*R.dGdTheta(pol,a,bb,refOf(l,s));
           }
         };
         accOuter(pair.w,+1);accOuter(pair.l,-1);
@@ -195,15 +202,16 @@ export function initT3(){
           const accInner=(inner,sign)=>{
             for(const{sn,l,as}of inner){
               const pol=pols[l+1][sn];
+              const rf=refOf(l+1,sn);
               const nz=as.length||1;
               if(regK==="euc"){
                 for(const aj of as)for(let bb=0;bb<3;bb++)
-                  grad[l+1][sn][bb]+=coef*sign*aReg*(1/nz)*pol[aj]*((aj===bb?1:0)-pol[bb]);
-                for(let bb=0;bb<3;bb++){let dO=0;for(let a2=0;a2<3;a2++)dO+=(pol[a2]-1/3)*pol[a2]*((a2===bb?1:0)-pol[bb]);
-                  grad[l+1][sn][bb]+=coef*sign*aReg*(-dO);}
+                  grad[l+1][sn][bb]+=coef*sign*aReg*ISIGN*(1/nz)*pol[aj]*((aj===bb?1:0)-pol[bb]);
+                for(let bb=0;bb<3;bb++){let dO=0;for(let a2=0;a2<3;a2++)dO+=(pol[a2]-rf[a2])*pol[a2]*((a2===bb?1:0)-pol[bb]);
+                  grad[l+1][sn][bb]+=coef*sign*aReg*ISIGN*(-dO);}
               }else if(R.dPhi){
-                for(const aj of as){const u=3*Math.max(pol[aj],1e-12);const w=R.dPhi(u)*3/nz;
-                  for(let bb=0;bb<3;bb++)grad[l+1][sn][bb]+=coef*sign*aReg*w*pol[aj]*((aj===bb?1:0)-pol[bb]);}
+                for(const aj of as){const u=Math.max(pol[aj],1e-12)/rf[aj];const w=R.dPhi(u)*(1/rf[aj])/nz;
+                  for(let bb=0;bb<3;bb++)grad[l+1][sn][bb]+=coef*sign*aReg*ISIGN*w*pol[aj]*((aj===bb?1:0)-pol[bb]);}
               }
             }
           };
@@ -416,7 +424,7 @@ export function initT3(){
   }
 
   function peakOf(rk,al){
-    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH);
+    const sol=solveDP(rk,rewards,uniformPis(),al,GAMMA,EPS,DEPTH,refPol);
     let m=0;for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)m+=Math.max(...sol.pistar[l][s]);
     return m/(DEPTH*SN);
   }
@@ -480,7 +488,7 @@ export function initT3(){
     svg.appendChild(el("text",{x:348,y:20,fill:"#9b93a8","font-size":10},"π_θ (DPO-trained)"));
     REGKEYS.forEach((rk,i)=>{
       const x0=X0[i%2],y0=Y0[(i/2)|0];
-      const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH);
+      const sol=solveDP(rk,rewards,uniformPis(),alphas[rk],GAMMA,EPS,DEPTH,refPol);
       const pols=res[rk].pols;
       const star=[],est=[];
       for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++)for(let a=0;a<3;a++){

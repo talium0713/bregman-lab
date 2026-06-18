@@ -8,8 +8,8 @@ Reproduces every panel of the JS Part-3 lab with the shared palette, at real set
   4. policy-gap bars         final Δπ over the n_mc sweep {1,4,16}, ± seed std  (on-policy)
   5. π* vs π_θ panels        recovered policy vs target, per divergence
   6. extreme off-policy      on-policy vs single-logged-a' off-policy final Δπ
-  7. single-state std(Ĉ)     Φ-form (the only estimator): KL≡0, others ∝ 1/√n
-  8. α-div morph             same α, sweep α-div parameter a: policy goes RKL → KL
+  7. single-state std(Ĉ)     Φ-form (the only estimator): RKL≡0, others ∝ 1/√n
+  8. α-div morph             same α, sweep α-div parameter a: policy goes FKL → RKL
 
 Writes figs/part3_*.png and results_data.js (read by review.html).  Run:
     python run_part3.py            # full run (~3 min)
@@ -33,7 +33,7 @@ from experiments import calibrate, peakiness, c_stats, run_sweep, mean_std
 
 QUICK = bool(os.environ.get("QUICK"))
 GAMMA, EPS, DEPTH, BATCH = 0.9, 0.2, 4, 16
-PEAKS = [0.6]                    # §4.3 at the calibration anchor (extend to 0.7/0.8 if desired)
+PEAKS = [0.6, 0.7, 0.8]          # §4.3 sweep at three calibration anchors (on- and off-policy each)
 NMC_SWEEP = [1, 2] if QUICK else [1, 2, 4, 8, 16, 32, 64, 128, 256]   # §4.3 Monte-Carlo budget sweep
 SEEDS = 2 if QUICK else 3
 STEPS = 80 if QUICK else 400
@@ -76,7 +76,7 @@ def fig_cstats(stats, target, sfx):
         plt.bar(x[i] + w/2, max(mc[i], floor), w, color=COLORS[rk], alpha=0.4, edgecolor="w", linewidth=0.6)
     plt.yscale("log"); plt.ylim(floor, max(ss.max(), mc.max(), 1e-2) * 2)
     plt.xticks(x, [SHORT[rk] for rk in REGKEYS]); plt.ylabel("C_Ω spread (log)")
-    plt.title(f"C_Ω stats (peak {target}) — solid: std across states · faint: 1-sample Φ-form MC std. KL≈0")
+    plt.title(f"C_Ω stats (peak {target}) — solid: std across states · faint: 1-sample Φ-form MC std. RKL≈0")
     plt.tight_layout(); plt.savefig(f"figs/part3_cstats{sfx}.png", dpi=130); plt.close()
 
 
@@ -134,12 +134,12 @@ def fig_on_off_bars(out_on, out_off, target, sfx):
         plt.bar(x[i] - w/2, on_mu, w, yerr=on_sd, color=COLORS[rk], alpha=0.95, capsize=2, **ekw)
         plt.bar(x[i] + w/2, of_mu, w, yerr=of_sd, color=COLORS[rk], alpha=0.4, edgecolor="w", capsize=2)
     plt.xticks(x, [SHORT[rk] for rk in REGKEYS]); plt.ylabel("final gap Δπ (n_mc=1)")
-    plt.title(f"solid: on-policy (n_mc=1) · faint: extreme off-policy (1 logged a′), peak {target}. KL lowest")
+    plt.title(f"solid: on-policy (n_mc=1) · faint: extreme off-policy (1 logged a′), peak {target}. RKL lowest")
     plt.tight_layout(); plt.savefig(f"figs/part3_gap_on_off{sfx}.png", dpi=130); plt.close()
 
 
 def fig_single_state_var(ssv, ns):
-    """Paper §4.2 Fig 3: left = estimator value ±1σ (dashed=exact), right = std vs n. KL≡const/0."""
+    """Paper §4.2 Fig 3: left = estimator value ±1σ (dashed=exact), right = std vs n. RKL≡const/0."""
     x = np.log2(ns)
     fig, (axV, axS) = plt.subplots(1, 2, figsize=(11, 4))
     for rk in REGKEYS:
@@ -152,7 +152,7 @@ def fig_single_state_var(ssv, ns):
         axS.plot(x, sd, color=COLORS[rk], marker="s", ms=4, **_kl_kw(rk, 1.6), label=REG[rk].label)
     axV.set_title("Single state — estimator value Ĉ_Ω (±1σ, dashed=exact)", fontsize=10)
     axV.set_xlabel("log2 n"); axV.set_ylabel("Ĉ_Ω(π; ref)")
-    axS.set_title("Single state — estimator std vs n (KL≡0, others ∝ 1/√n)", fontsize=10)
+    axS.set_title("Single state — estimator std vs n (RKL≡0, others ∝ 1/√n)", fontsize=10)
     axS.set_xlabel("log2 n"); axS.set_ylabel("std of Ĉ_Ω"); axS.legend(fontsize=7, ncol=2)
     fig.tight_layout(); fig.savefig("figs/part3_single_state_var.png", dpi=120); plt.close()
 
@@ -170,7 +170,7 @@ def fig_trajectory_var(tjv, Hs):
         axS.plot(Hs, sd, color=COLORS[rk], marker="s", ms=4, **_kl_kw(rk, 1.6), label=REG[rk].label)
     axV.set_title("Trajectory — inner-term sum Σ_t Ĉ_Ω (±1σ, n_mc=8)", fontsize=10)
     axV.set_xlabel("horizon H"); axV.set_ylabel("Σ_t Ĉ_Ω(π(·|s_{t+1}))")
-    axS.set_title("Trajectory — per-traj std vs H (KL≡0, others ∝ √(H−1))", fontsize=10)
+    axS.set_title("Trajectory — per-traj std vs H (RKL≡0, others ∝ √(H−1))", fontsize=10)
     axS.set_xlabel("horizon H"); axS.set_ylabel("std of Σ_t Ĉ_Ω"); axS.legend(fontsize=7, ncol=2)
     fig.tight_layout(); fig.savefig("figs/part3_trajectory_var.png", dpi=120); plt.close()
 
@@ -189,13 +189,13 @@ def fig_cprobe():
 
 
 def fig_adiv_morph(rewards):
-    """α-div parameter sweep at fixed α; π* over (l,s,a). Gradient anchored on RKL & KL colours;
-    legend marks the family members it recovers (a→0 RKL, 0.5 Hellinger, →1 KL, 2 χ²). No ground truth."""
+    """α-div parameter sweep at fixed α; π* over (l,s,a). Gradient anchored on FKL & RKL colours;
+    legend marks the family members it recovers (a→0 FKL, 0.5 Hellinger, →1 RKL, 2 χ²). No ground truth."""
     from matplotlib.colors import LinearSegmentedColormap
     alpha = 0.5
-    specs = [(0.02, "a→0   (Reverse-KL)"), (0.25, "a=0.25"),
+    specs = [(0.02, "a→0   (forward KL)"), (0.25, "a=0.25"),
              (0.5,  "a=0.5  (sq. Hellinger)"), (0.75, "a=0.75"),
-             (0.999, "a→1   (KL)"), (1.5, "a=1.5"), (2.0, "a=2   (Pearson χ²)")]
+             (0.999, "a→1   (reverse KL)"), (1.5, "a=1.5"), (2.0, "a=2   (Pearson χ²)")]
     a_min, a_max = 0.0, 2.0
     cmap = LinearSegmentedColormap.from_list("rkl_kl_ext", [(0.0, COLORS["rkl"]), (0.5, COLORS["kl"]), (1.0, "#f39c12")])
     plt.figure(figsize=(12, 4.3)); series = {}
@@ -203,13 +203,13 @@ def fig_adiv_morph(rewards):
         sol = solve_dp("adiv", rewards, uniform_pis(DEPTH), alpha, GAMMA, EPS, reg=make_adiv(a))
         pol = sol.pistar.reshape(-1); series[f"{a}"] = {"label": lab, "pol": pol.tolist()}
         c = cmap((a - a_min) / (a_max - a_min))
-        lw = 3.0 if ("KL)" in lab or "Reverse" in lab) else 2.0
+        lw = 3.0 if ("forward KL" in lab or "reverse KL" in lab) else 2.0
         plt.plot(np.arange(len(pol)), pol, marker="s", ms=4.5, lw=lw, color=c, label=lab, zorder=3)
     for l in range(1, DEPTH):
         plt.axvline(l * SN * NA - 0.5, color="#ddd", lw=0.8, zorder=0)
     plt.xlabel("policy index  (layer, state, action)")
     plt.ylabel(f"reach prob  π*(a|s),   fixed α={alpha}")
-    plt.title("α-divergence morph: π* sweeps RKL → Hellinger → KL → χ² as the parameter a grows (same α)")
+    plt.title("α-divergence morph: π* sweeps FKL → Hellinger → RKL → χ² as the parameter a grows (same α)")
     plt.grid(alpha=0.22); plt.legend(fontsize=8.5, ncol=2, loc="upper right")
     plt.tight_layout(); plt.savefig("figs/part3_adiv_morph.png", dpi=130); plt.close()
     return {"alpha": alpha, "a_min": a_min, "a_max": a_max, "series": series}
@@ -223,7 +223,7 @@ def run_section43(peak, rng, n_mdp=3):
     (the paper's "leaf-reward draws") for clean bands. Two data regimes (both n_mc-resample inner):
       on-policy  : preference data rolled out from each Ω's own π*_Ω
       off-policy : preference data rolled out from π_ref (uniform)
-    KL is flat & lowest in n_mc (admissible, zero inner-term noise); non-KL start high at n_mc=1
+    RKL is flat & lowest in n_mc (admissible, zero inner-term noise); non-RKL start high at n_mc=1
     and decay toward KL as the budget grows.  Returns alphas0, rewards0 (MDP 0, for the side
     panels), agg[on/off][rk][nm]=(mean,std) over (MDP×seed), and the n_mc=1 policies of MDP 0.
     """

@@ -79,7 +79,7 @@ class Spec:
 
 # ── α-divergence family, parameterized by a (the "α" of the Amari α-divergence) ──
 #   f_a(t) = (t^a − a t + a − 1) / (a(a−1)),   f'_a(t) = (t^{a−1} − 1)/(a−1),   f''_a(t) = t^{a−2}
-#   a → 1  ⇒  KL   (t ln t);     a → 0  ⇒  Reverse-KL.   So a ∈ (0,1) sits "between KL and RKL".
+#   a → 1  ⇒  reverse KL/RKL (t ln t);  a → 0  ⇒  forward KL/FKL.   So a ∈ (0,1) sits "between RKL and FKL".
 # DEFAULT is the midpoint a = 0.5; pass a different value via make_adiv(a) (e.g. the morph sweep).
 DEFAULT_ADIV_A = 0.5
 
@@ -96,7 +96,7 @@ def _adiv_inv(y, a):
 
 def _adiv_spec(a: float) -> "Spec":
     if a == 0.0 or a == 1.0:
-        raise ValueError("α-div parameter a must avoid 0 (=RKL) and 1 (=KL); use those keys directly.")
+        raise ValueError("α-div parameter a must avoid 0 (=FKL, key 'rkl') and 1 (=RKL, key 'kl'); use those keys directly.")
     e, norm = a - 1.0, a * (a - 1.0)
     return Spec(
         "adiv", f"α-div (a={a:g})", "fdiv",
@@ -110,13 +110,13 @@ def _adiv_spec(a: float) -> "Spec":
 
 _SPECS = {
     "kl": Spec(
-        "kl", "KL", "fdiv",
+        "kl", "reverse KL", "fdiv",
         f=lambda t: t * _lg(t), fp=lambda t: _lg(t) + 1, fpp=lambda t: 1.0 / t,
         inv=lambda y: np.exp(y - 1.0),
     ),
     "adiv": _adiv_spec(DEFAULT_ADIV_A),
     "rkl": Spec(
-        "rkl", "Reverse KL", "fdiv",
+        "rkl", "forward KL", "fdiv",
         f=lambda t: -_lg(t), fp=lambda t: -1.0 / t, fpp=lambda t: 1.0 / (t * t),
         inv=lambda y: -1.0 / np.minimum(y, -1e-12),
         nu_bracket=lambda Q, al: (Q.max() + 1e-10, Q.max() + 1000 * al + 10),
@@ -150,7 +150,7 @@ REGKEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2", "euc"]
 # so every figure/HTML keeps the same colour per Ω.
 COLORS = {"kl": "#e84393", "adiv": "#c455b8", "rkl": "#9b59d0", "js": "#6f6ae0",
           "hel": "#5585e0", "chi2": "#4fa8d8", "euc": "#5bc8d6"}
-SHORT = {"kl": "KL", "adiv": "α-div", "rkl": "RKL", "js": "JS",
+SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
 
@@ -283,7 +283,7 @@ REG: dict[str, Regularizer] = {k: Regularizer(k, s.label, s) for k, s in _SPECS.
 
 
 def make_adiv(a: float) -> "Regularizer":
-    """Build an α-divergence Regularizer for an arbitrary parameter a (a∈(0,1) ⇒ between RKL & KL).
+    """Build an α-divergence Regularizer for an arbitrary parameter a (a∈(0,1) ⇒ between RKL & FKL).
     The default REG['adiv'] uses a = DEFAULT_ADIV_A; use this to sweep a (e.g. the morph figure)."""
     s = _adiv_spec(a)
     return Regularizer("adiv", s.label, s)

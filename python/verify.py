@@ -49,7 +49,7 @@ ok("Φ-form estimator unbiased for all seven Ω")
 
 
 # ── CHECK 3 — admissibility is CHECKED, not hardcoded; KL is C≡1 for any ref/policy ──
-print("\n[3] admissibility CHECKED empirically (Var_a[Φ]≈0) + C_KL≡1 for any ref/policy")
+print("\n[3] admissibility CHECKED empirically (Var_a[Φ]≈0) + C_RKL≡1 for any ref/policy")
 assert is_admissible("kl") and not any(is_admissible(rk) for rk in REGKEYS if rk != "kl")
 for _ in range(200):
     q = rng.dirichlet(np.ones(3)); rf = rng.dirichlet(np.ones(3))
@@ -70,7 +70,7 @@ ok("Φ_KL ≡ 1 (spread ~0);  every other Φ varies with u")
 
 
 # ── CHECK 5 — fully-sampled Φ-form: KL variance EXACTLY 0; non-KL = Var_π[Φ]/n > 0 ──
-print("\n[5] Φ-form (the only estimator): KL is sampled like everyone but its draws are constant")
+print("\n[5] Φ-form (the only estimator): RKL is sampled like everyone but its draws are constant")
 p = np.array([0.55, 0.30, 0.15]); ref = np.full(3, 1 / 3); u = p / ref
 for n in (1, 4, 16):
     v_kl = np.var([C_hat_phi("kl", p, n, rng) for _ in range(80000)])
@@ -78,7 +78,7 @@ for n in (1, 4, 16):
     phi_js = REG["js"].Phi(u)
     var_phi_js = float(np.sum(p * phi_js ** 2) - np.sum(p * phi_js) ** 2)
     v_js = np.var([C_hat_phi("js", p, n, rng) for _ in range(80000)])
-    print(f"      n={n:2d}  Var_phi[KL]={v_kl:.2e}   Var_phi[JS]={v_js:.5f}  (analytic Var_π[Φ_JS]/n={var_phi_js/n:.5f})")
+    print(f"      n={n:2d}  Var_phi[RKL]={v_kl:.2e}   Var_phi[JS]={v_js:.5f}  (analytic Var_π[Φ_JS]/n={var_phi_js/n:.5f})")
     assert v_kl < 1e-12, "KL Φ-form variance must be exactly 0 (Φ_KL≡1, computed)"
     assert abs(v_js - var_phi_js / n) < 5e-3, "non-KL Φ-form variance must equal Var_π[Φ]/n"
 ok("KL Φ-form variance == 0 exactly (computed, not hardcoded);  non-KL == Var_π[Φ]/n > 0")

@@ -56,7 +56,7 @@ eps = st.sidebar.slider("ε  (transition noise)", 0.0, 0.5, 0.20, 0.05)
 depth = st.sidebar.slider("depth (layers)", 2, 5, 4)
 npairs = st.sidebar.slider("N_pairs (preference data)", 3000, 10000, 6000, 1000)
 steps = st.sidebar.select_slider("SGD steps", [100, 200, 400, 800], value=400)
-seeds = st.sidebar.slider("seeds", 1, 5, 3)
+seeds = st.sidebar.slider("seeds  (tabular needs many for stable estimates)", 1, 100, 3)
 batch = st.sidebar.select_slider("batch size", [4, 8, 16, 32], value=16)
 st.sidebar.caption("Heavy runs are gated behind buttons with progress bars. "
                    "(α-divergence parameter a is swept in its own tab, so it's not a global setting.)")
@@ -98,6 +98,36 @@ def ss_var():
 def tj_var():
     Hs = list(range(1, 9))
     return Hs, {rk: trajectory_variance(rk, Hs, seed=2) for rk in REGKEYS}
+
+
+@st.cache_data(show_spinner="sampling inner values from Dirichlet…")
+def c_ablation(peak, eps, depth, conc, n_draws, mdp_seed=0):
+    """
+    Ablation: replace the actual inner integrand with ARBITRARY inner values sampled from a
+    Dirichlet, and measure the n-sample MC std of the inner term under a'~π(·|s').
+      c(s')   = one value per state  (state-indexed)  ⇒ no a' dependence ⇒ std ≡ 0 (admissible).
+      c(s',a')= one value per state-action            ⇒ a' dependence    ⇒ std ∝ 1/√n (non-admissible).
+    Averages over `n_draws` Dirichlet draws across ALL states / state-actions of the MDP. The
+    sampling policy π(·|s') is the calibrated admissible-divergence π* at the chosen peak.
+    """
+    ns = [2 ** k for k in range(0, 9)]               # 1 … 256
+    rng = np.random.default_rng(123)
+    rew = rewards_for(depth, mdp_seed)
+    al = calibrate(rew, peak, GAMMA, eps)
+    pol = solve_dp("kl", rew, uniform_pis(depth), al["kl"], GAMMA, eps).pistar   # a'~π*(·|s')
+    states = [(l, s) for l in range(depth) for s in range(SN)]
+    per_draw_var = []
+    for _ in range(n_draws):
+        v = 0.0
+        for (l, s) in states:
+            p = pol[l, s]
+            c = rng.dirichlet(np.full(NA, conc))     # c(s',a') ~ Dirichlet over this state's actions
+            m = float(np.dot(p, c)); v += float(np.dot(p, c * c) - m * m)   # Var_{a'~π}[c]
+        per_draw_var.append(v / len(states))
+    var_sa = float(np.mean(per_draw_var))
+    res_sa = {n: float(np.sqrt(var_sa / n)) for n in ns}   # c(s',a') MC std
+    res_s = {n: 0.0 for n in ns}                           # c(s')  ≡ 0 (state-indexed)
+    return ns, res_sa, res_s
 
 
 def nmc_sweep(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp, progress_cb=None):
@@ -171,8 +201,9 @@ with st.container():
 st.divider()
 
 # ───────────────────────── tabs ─────────────────────────
-t1, t2, t3, t4, t5 = st.tabs(
-    ["① Calibration", "② §4.2 variance", "③ §4.3 n_mc sweep", "④ Policy recovery", "⑤ α-div morph"])
+t1, t2, t3, t4, t5, t6 = st.tabs(
+    ["① Calibration", "② §4.2 variance", "③ §4.3 n_mc sweep", "④ Policy recovery", "⑤ α-div morph",
+     "⑥ c(s') vs c(s',a')"])
 
 # ── ① calibration table + α–peak sweep plot ──
 with t1:
@@ -219,7 +250,7 @@ with t2:
             a.fill_between(np.log2(ns), mu - sd, mu + sd, color=COLORS[rk], alpha=0.1)
             b.plot(np.log2(ns), [ssv[rk][n]["std"] for n in ns], color=COLORS[rk], marker="s", ms=3, **kl_kw(rk))
         a.set_title(r"single state — $\hat C_\Omega$ (±1σ)"); a.set_xlabel("log2 n"); a.legend(fontsize=6, ncol=2)
-        b.set_title(r"single state — std vs n (KL $\equiv$ 0)"); b.set_xlabel("log2 n")
+        b.set_title(r"single state — std vs n (RKL $\equiv$ 0)"); b.set_xlabel("log2 n")
         fig.tight_layout(); show(fig)
     with c2:
         fig, (a, b) = plt.subplots(2, 1, figsize=(5.5, 6))
@@ -252,7 +283,7 @@ is needed in **both** regimes — it is exactly the obstruction the paper identi
 """)
     cc1, cc2 = st.columns(2)
     nmc_max = cc1.select_slider("n_mc max (2^k)", [4, 8, 16], value=16)
-    n_mdp = cc2.slider("MDP draws to average", 1, 3, 1)
+    n_mdp = cc2.slider("MDP draws to average", 1, 100, 1)
     nmc_list = [2 ** k for k in range(int(np.log2(nmc_max)) + 1)]
     if st.button("▶ Run n_mc sweep", type="primary"):
         pb = st.progress(0.0, text="starting…")
@@ -341,6 +372,40 @@ with t5:
                 color=cmap(a / 2.0), label=lab)
     ax.set_xlabel("policy index (layer, state, action)")
     ax.set_ylabel(r"$\pi^*(a|s)$, fixed $\alpha=%.1f$" % alpha)
-    ax.set_title("α-div recovers RKL (a→0), Hellinger (a=0.5), KL (a→1), χ² (a=2)")
+    ax.set_title("α-div recovers FKL (a→0), Hellinger (a=0.5), RKL (a→1), χ² (a=2)")
     ax.legend(fontsize=8, ncol=2); ax.grid(alpha=0.2)
     fig.tight_layout(); show(fig)
+
+# ── ⑥ c(s') vs c(s',a') admissibility ablation (Dirichlet-sampled inner values) ──
+with t6:
+    st.subheader("c(s') vs c(s',a') — admissibility ablation")
+    st.markdown(r"""
+Instead of hand-picking the inner values, we **sample them from a Dirichlet** over all states
+(for a state-indexed $c(s')$) or all state-actions (for an action-indexed $c(s',a')$), and measure
+the $n$-sample Monte-Carlo std of the inner term under $a'\sim\pi^*(\cdot|s')$:
+
+- **$c(s')$** (state-indexed): no dependence on $a'$ ⇒ the estimator is **exactly constant** ⇒ std $\equiv 0$ — *admissible* (computable from $(s,a,s')$ alone).
+- **$c(s',a')$** (action-indexed): depends on the next action ⇒ you must draw $a'\sim\pi^*(\cdot|s')$ ⇒ std $\propto 1/\sqrt{n}$ — *non-admissible*.
+
+The admissible regularizer is admissible precisely because its inner term is a (constant) $c(s')$;
+this ablation shows the principle holds for **any** Dirichlet-sampled $c$ — a state-indexed inner
+term costs zero MC variance, a state-action-indexed one costs $\propto 1/\sqrt{n}$, regardless of
+the specific values.
+""")
+    cc1, cc2 = st.columns(2)
+    conc = cc1.slider("Dirichlet concentration  (smaller = more spread-out c)", 0.1, 5.0, 1.0, 0.1)
+    n_draws = cc2.slider("Dirichlet draws to average", 10, 500, 100, 10)
+    ns, sa, ss = c_ablation(peak, eps, depth, conc, n_draws)
+    fig, ax = plt.subplots(figsize=(7.5, 4))
+    ax.plot(np.log2(ns), [sa[n] for n in ns], marker="s", ms=5, lw=2.6, color="#c0392b",
+            label="c(s',a') — action-indexed (non-admissible)")
+    ax.plot(np.log2(ns), [ss[n] for n in ns], marker="o", ms=5, lw=2.6, color="#27ae60",
+            label="c(s') — state-indexed (admissible)")
+    ax.set_xlabel(r"log2 n   ($n$ = MC samples $a'\sim\pi^*(\cdot|s')$)")
+    ax.set_ylabel("single-state MC std of the inner term")
+    ax.set_title(r"$c(s')$ needs no $a'$ sample (std $\equiv$ 0); $c(s',a')$ incurs MC variance $\propto 1/\sqrt{n}$")
+    ax.legend(); ax.grid(alpha=0.2)
+    fig.tight_layout(); show(fig)
+    st.caption("c-values are sampled per state / state-action from a Dirichlet (averaged over the draws "
+               "above), across every state of the MDP; sampling policy is the calibrated admissible π* "
+               "at the current peak/ε.")
