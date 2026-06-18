@@ -308,7 +308,12 @@ drawing $n_{mc}$ next-state actions $a'\sim\pi_\theta(\cdot|s')$ at each logged 
 regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ while non-KL improve.""")
     cc1, cc2 = st.columns(2)
     nmc_max = cc1.select_slider("n_mc max", [4, 8, 16], value=16)
-    n_mdp = cc2.slider("MDP draws to average (mi=0 = the MDP shown above)", 1, 20, 1)
+    n_mdp = cc2.slider("MDP draws to average", 1, 20, 1,
+                       help="Number of independent random MDPs (fresh reward draws) trained and "
+                            "averaged together to smooth out the per-instance noise in Δπ. "
+                            "Draw mi=0 is the seed-0 MDP shown at the top of the page; mi=1,2,… are "
+                            "new reward tensors from later seeds. More draws = cleaner curves, "
+                            "linearly more compute.")
     nmc_list = [2 ** k for k in range(int(np.log2(nmc_max)) + 1)]
     st.caption(f"This run trains 7 Ω × {len(nmc_list)} n_mc × {seeds} seeds × 2 regimes × {n_mdp} MDP "
                f"= {7*len(nmc_list)*seeds*2*n_mdp} fits. Python is much slower than the JS standalone "
@@ -321,30 +326,54 @@ regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ whi
     if "run" in st.session_state:
         agg, pols, curves, nmc_list = st.session_state["run"]
         rew = rewards_for(depth); al = calib(peak, eps, depth)
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
-        for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
-                             (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
-            for rk in REGKEYS:
-                mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
-                sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
-                ax.plot(nmc_list, mu, color=COLORS[rk], marker="o", ms=4, label=REG[rk].label, **kl_kw(rk, 1.7))
-                ax.fill_between(nmc_list, mu - sd, mu + sd, color=COLORS[rk], alpha=0.12)
-            ax.set_xscale("log", base=2); ax.set_xticks(nmc_list); ax.set_xticklabels(nmc_list, fontsize=8)
-            ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2)
-        axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[1].legend(fontsize=7, ncol=2)
-        fig.tight_layout(); show(fig)
+        view = st.radio("gap view", ["grouped bars", "lines"], horizontal=True,
+                        help="Grouped bars = n_mc on the x-axis, one coloured bar per Ω in each "
+                             "group, error bars = ±seed std. Lines = the same data as Δπ-vs-n_mc curves.")
+        if view == "grouped bars":
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), sharey=True)
+            x = np.arange(len(nmc_list)); w = 0.8 / len(REGKEYS)
+            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
+                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+                for j, rk in enumerate(REGKEYS):
+                    mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
+                    sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
+                    ax.bar(x + (j - (len(REGKEYS) - 1) / 2) * w, mu, w, yerr=sd, capsize=2,
+                           color=COLORS[rk], label=REG[rk].label,
+                           error_kw=dict(lw=0.7, alpha=0.6))
+                ax.set_xticks(x); ax.set_xticklabels(nmc_list, fontsize=8)
+                ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2, axis="y")
+            axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)")
+            axes[1].legend(fontsize=7, ncol=2)
+            fig.suptitle("n_mc sweep — final policy gap (± seed std)", fontsize=11)
+            fig.tight_layout(); show(fig)
+        else:
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
+            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
+                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+                for rk in REGKEYS:
+                    mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
+                    sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
+                    ax.plot(nmc_list, mu, color=COLORS[rk], marker="o", ms=4, label=REG[rk].label, **kl_kw(rk, 1.7))
+                    ax.fill_between(nmc_list, mu - sd, mu + sd, color=COLORS[rk], alpha=0.12)
+                ax.set_xscale("log", base=2); ax.set_xticks(nmc_list); ax.set_xticklabels(nmc_list, fontsize=8)
+                ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2)
+            axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[1].legend(fontsize=7, ncol=2)
+            fig.tight_layout(); show(fig)
         st.markdown("**Policy recovery from this run** — π* (dashed) vs π_θ (solid). Pick the budget:")
         nm_sel = st.select_slider("n_mc for the recovery panels", nmc_list, value=nmc_list[0])
         rc1, rc2 = st.columns(2)
         rc1.markdown(r"**on-policy ($\pi^*_\Omega$)**"); show(fig_recovery(pols["on"], nm_sel, al, rew, "on-policy"), rc1)
         rc2.markdown(r"**off-policy ($\pi_{\mathrm{ref}}$)**"); show(fig_recovery(pols["off"], nm_sel, al, rew, "off-policy"), rc2)
-        with st.expander("training curves (gap vs SGD step) at the selected n_mc"):
-            fig, ax = plt.subplots(figsize=(7, 3.6))
-            for rk in REGKEYS:
-                cv = curves["on"][rk][nm_sel]
-                ax.plot(np.linspace(0, steps, len(cv)), cv, color=COLORS[rk], label=REG[rk].label, **kl_kw(rk, 1.5))
-            ax.set_xlabel("SGD step"); ax.set_ylabel("Δπ"); ax.set_title(f"on-policy training curves · n_mc={nm_sel}")
-            ax.legend(fontsize=6.5, ncol=2); fig.tight_layout(); show(fig)
+        with st.expander("training curves (gap vs SGD step) at the selected n_mc — on AND off-policy"):
+            fig, axes = plt.subplots(1, 2, figsize=(12, 3.6), sharey=True)
+            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
+                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+                for rk in REGKEYS:
+                    cv = curves[key][rk][nm_sel]
+                    ax.plot(np.linspace(0, steps, len(cv)), cv, color=COLORS[rk], label=REG[rk].label, **kl_kw(rk, 1.5))
+                ax.set_xlabel("SGD step"); ax.set_title(f"{ttl} · n_mc={nm_sel}"); ax.grid(alpha=0.2)
+            axes[0].set_ylabel("Δπ"); axes[1].legend(fontsize=6.5, ncol=2)
+            fig.tight_layout(); show(fig)
     else:
         st.info("Set n_mc max / MDP draws, then click **Run training** — one run fills the gap curves and the recovery panels.")
 
