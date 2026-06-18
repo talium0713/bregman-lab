@@ -130,11 +130,18 @@ def c_ablation(peak, eps, depth, conc, n_draws, mdp_seed=0):
     return ns, res_sa, res_s
 
 
-def nmc_sweep(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp, progress_cb=None):
-    raw = {key: {rk: {nm: [] for nm in nmc_list} for rk in REGKEYS} for key in ("on", "off")}
+def nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp):
+    """ONE shared training run: trains every Ω over the n_mc list, on-policy (π*_Ω rollouts) and
+    off-policy (π_ref rollouts), averaged over n_mdp reward draws (mi=0 = the displayed seed-0 MDP).
+    Returns the final-gap aggregate AND the trained policies / curves of MDP-0·seed-0 so the SAME
+    run feeds both the gap-vs-n_mc plot and the policy-recovery panels."""
+    raw = {k: {rk: {nm: [] for nm in nmc_list} for rk in REGKEYS} for k in ("on", "off")}
+    pols = {k: {rk: {} for rk in REGKEYS} for k in ("on", "off")}        # MDP0/seed0 policy per nm
+    curves = {k: {rk: {} for rk in REGKEYS} for k in ("on", "off")}      # MDP0/seed0 training curve
     total = n_mdp * len(REGKEYS) * len(nmc_list); done = 0
+    prog = st.session_state.get("_prog")
     for mi in range(n_mdp):
-        rng = np.random.default_rng(10 + mi)
+        rng = np.random.default_rng(mi)                                  # mi=0 → seed 0 (shown MDP)
         rew = new_rewards(depth, rng)
         al = calibrate(rew, peak, GAMMA, eps)
         data_off = make_dataset(rew, eps, GAMMA, rng, npairs)
@@ -144,15 +151,38 @@ def nmc_sweep(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp, pr
             for nm in nmc_list:
                 for sd in range(seeds):
                     cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm)
-                    _, gon, _ = train_one(rk, rew, al[rk], data_on, cfg, eps, rng)
-                    _, gof, _ = train_one(rk, rew, al[rk], data_off, cfg, eps, rng)
+                    con, gon, pon = train_one(rk, rew, al[rk], data_on, cfg, eps, rng)
+                    cof, gof, pof = train_one(rk, rew, al[rk], data_off, cfg, eps, rng)
                     raw["on"][rk][nm].append(gon); raw["off"][rk][nm].append(gof)
+                    if mi == 0 and sd == 0:
+                        pols["on"][rk][nm], pols["off"][rk][nm] = pon, pof
+                        curves["on"][rk][nm], curves["off"][rk][nm] = con, cof
                 done += 1
-                if progress_cb:
-                    progress_cb(done / total, f"MDP {mi+1}/{n_mdp} · {SHORT[rk]} · n_mc={nm}  ({done}/{total})")
-    agg = {key: {rk: {nm: mean_std(raw[key][rk][nm]) for nm in nmc_list} for rk in REGKEYS}
-           for key in ("on", "off")}
-    return agg
+                if prog is not None:
+                    prog.progress(done / total, f"MDP {mi+1}/{n_mdp} · {SHORT[rk]} · n_mc={nm}  ({done}/{total})")
+    agg = {k: {rk: {nm: mean_std(raw[k][rk][nm]) for nm in nmc_list} for rk in REGKEYS} for k in ("on", "off")}
+    return agg, pols, curves
+
+
+def fig_recovery(pols_k, nm, alphas, rew, tag):
+    """π* (dashed) vs π_θ (solid) over (ℓ,s,a), per Ω, from a stored run's policy at budget nm."""
+    depth = rew.shape[0]
+    fig, axes = plt.subplots(4, 2, figsize=(9, 8)); axes = axes.ravel()
+    for i, rk in enumerate(REGKEYS):
+        sol = solve_dp(rk, rew, uniform_pis(depth), alphas[rk], GAMMA, eps)
+        pol = pols_k[rk][nm]
+        star = [sol.pistar[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]
+        est = [pol[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]
+        g = 0.5 * np.mean([abs(star[j] - est[j]) for j in range(len(star))]) * NA
+        ax = axes[i]
+        ax.plot(star, "--", color="#444", marker="o", ms=2, lw=1.0, label="π*")
+        ax.plot(est, "-", color=COLORS[rk], marker="s", ms=2, lw=2.4 if rk == "kl" else 1.5, label="π_θ")
+        ax.set_title(f"{REG[rk].label} (α={alphas[rk]:.2f})", fontsize=9, color=COLORS[rk]); ax.set_ylim(0, 1)
+        if i == 0:
+            ax.legend(fontsize=7)
+    axes[-1].axis("off")
+    fig.suptitle(f"{tag} · n_mc={nm} · x=(layer,state,action)", y=1.0, fontsize=10)
+    fig.tight_layout(); return fig
 
 
 # ───────────────────────── MDP instance (always shown on top) ─────────────────────────
@@ -201,9 +231,9 @@ with st.container():
 st.divider()
 
 # ───────────────────────── tabs ─────────────────────────
-t1, t2, t3, t4, t5, t6 = st.tabs(
-    ["① Calibration", "② §4.2 variance", "③ §4.3 n_mc sweep", "④ Policy recovery", "⑤ α-div morph",
-     "⑥ c(s') vs c(s',a')"])
+t1, t2, t3, t4, t5 = st.tabs(
+    ["① Calibration", "② §4.2 variance", "③ §4.3 training (gap + recovery)", "④ α-div morph",
+     "⑤ c(s') vs c(s',a')"])
 
 # ── ① calibration table + α–peak sweep plot ──
 with t1:
@@ -263,98 +293,64 @@ with t2:
         b.set_title(r"trajectory — std vs H ($\sqrt{H-1}$)"); b.set_xlabel("horizon H")
         fig.tight_layout(); show(fig)
 
-# ── ③ §4.3 n_mc sweep ──
+# ── ③ §4.3 training: ONE run → gap-vs-n_mc + policy recovery (shared) ──
 with t3:
-    st.subheader("§4.3 — trained-policy gap Δπ vs Monte-Carlo budget n_mc")
-    st.markdown(r"$\Delta_\pi$ (mean TV over states) vs $n_{mc}$. KL stays **flat & lowest**; "
-                r"non-KL start high at $n_{mc}=1$ and decay toward KL as the budget grows.")
-    with st.expander("What is n_mc here, and why does it apply to off-policy too?"):
+    st.subheader("§4.3 — one training run feeds the n_mc gap curves AND policy recovery")
+    st.markdown(r"Trains every $\Omega$ over the $n_{mc}$ list, **on-policy** ($\pi^*_\Omega$ rollouts) "
+                r"and **off-policy** ($\pi_{\mathrm{ref}}$ rollouts). One run produces both the "
+                r"$\Delta_\pi$-vs-$n_{mc}$ curves and the $\pi^*$-vs-$\pi_\theta$ panels (pick $n_{mc}$ below).")
+    with st.expander("What is n_mc, and why does it apply to off-policy too?"):
         st.markdown(r"""
-**on/off-policy = the behaviour policy that *collected the data***, not whether rollouts happen:
-- **on-policy**: preference pairs are rolled out from each $\Omega$'s own $\pi^*_\Omega$.
-- **off-policy**: preference pairs are rolled out from $\pi_{\mathrm{ref}}$ (uniform). *(Rollouts still happen — just from $\pi_{\mathrm{ref}}$.)*
-
-**$n_{mc}$ is a separate, training-time quantity:** to evaluate the non-KL implicit reward at a
-logged transition $(s,a,s')$, you must estimate the inner term
-$C_\Omega(\pi_\theta(\cdot|s'))=\mathbb{E}_{a'\sim\pi_\theta(\cdot|s')}[\,\cdot\,]$ by drawing
-$n_{mc}$ next-state actions $a'\sim\pi_\theta(\cdot|s')$ **at each logged $s'$**. This extra sampling
-is needed in **both** regimes — it is exactly the obstruction the paper identifies. KL avoids it
-($C_{\mathrm{KL}}\equiv 1$, no $a'$ sample), so KL is flat in $n_{mc}$ while non-KL improve as $n_{mc}$ grows.
-""")
+**on/off-policy = the behaviour policy that *collected the data***, not whether rollouts happen
+(off-policy still rolls out — from $\pi_{\mathrm{ref}}$). **$n_{mc}$ is a training-time quantity:**
+to evaluate the non-KL implicit reward at a logged $(s,a,s')$ you must estimate the inner term by
+drawing $n_{mc}$ next-state actions $a'\sim\pi_\theta(\cdot|s')$ at each logged $s'$ — in **both**
+regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ while non-KL improve.""")
     cc1, cc2 = st.columns(2)
-    nmc_max = cc1.select_slider("n_mc max (2^k)", [4, 8, 16], value=16)
-    n_mdp = cc2.slider("MDP draws to average", 1, 100, 1)
+    nmc_max = cc1.select_slider("n_mc max", [4, 8, 16], value=16)
+    n_mdp = cc2.slider("MDP draws to average (mi=0 = the MDP shown above)", 1, 20, 1)
     nmc_list = [2 ** k for k in range(int(np.log2(nmc_max)) + 1)]
-    if st.button("▶ Run n_mc sweep", type="primary"):
-        pb = st.progress(0.0, text="starting…")
-        sweep = nmc_sweep(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp,
-                          progress_cb=lambda f, t: pb.progress(f, text=t))
-        pb.empty()
-        st.session_state["sweep"] = (sweep, nmc_list)
-    if "sweep" in st.session_state:
-        sweep, nmc_list = st.session_state["sweep"]
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), sharey=True)
+    st.caption(f"This run trains 7 Ω × {len(nmc_list)} n_mc × {seeds} seeds × 2 regimes × {n_mdp} MDP "
+               f"= {7*len(nmc_list)*seeds*2*n_mdp} fits. Python is much slower than the JS standalone "
+               f"(browser JIT), so large `seeds` is heavy. Re-press to recompute.")
+    if st.button("▶ Run training", type="primary"):
+        st.session_state["_prog"] = st.progress(0.0, text="starting…")
+        agg, pols, curves = nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp)
+        st.session_state.pop("_prog", None)
+        st.session_state["run"] = (agg, pols, curves, nmc_list)
+    if "run" in st.session_state:
+        agg, pols, curves, nmc_list = st.session_state["run"]
+        rew = rewards_for(depth); al = calib(peak, eps, depth)
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
         for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
                              (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
             for rk in REGKEYS:
-                mu = np.array([sweep[key][rk][nm][0] for nm in nmc_list])
-                sd = np.array([sweep[key][rk][nm][1] for nm in nmc_list])
+                mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
+                sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
                 ax.plot(nmc_list, mu, color=COLORS[rk], marker="o", ms=4, label=REG[rk].label, **kl_kw(rk, 1.7))
                 ax.fill_between(nmc_list, mu - sd, mu + sd, color=COLORS[rk], alpha=0.12)
             ax.set_xscale("log", base=2); ax.set_xticks(nmc_list); ax.set_xticklabels(nmc_list, fontsize=8)
             ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2)
         axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[1].legend(fontsize=7, ncol=2)
         fig.tight_layout(); show(fig)
+        st.markdown("**Policy recovery from this run** — π* (dashed) vs π_θ (solid). Pick the budget:")
+        nm_sel = st.select_slider("n_mc for the recovery panels", nmc_list, value=nmc_list[0])
+        rc1, rc2 = st.columns(2)
+        rc1.markdown(r"**on-policy ($\pi^*_\Omega$)**"); show(fig_recovery(pols["on"], nm_sel, al, rew, "on-policy"), rc1)
+        rc2.markdown(r"**off-policy ($\pi_{\mathrm{ref}}$)**"); show(fig_recovery(pols["off"], nm_sel, al, rew, "off-policy"), rc2)
+        with st.expander("training curves (gap vs SGD step) at the selected n_mc"):
+            fig, ax = plt.subplots(figsize=(7, 3.6))
+            for rk in REGKEYS:
+                cv = curves["on"][rk][nm_sel]
+                ax.plot(np.linspace(0, steps, len(cv)), cv, color=COLORS[rk], label=REG[rk].label, **kl_kw(rk, 1.5))
+            ax.set_xlabel("SGD step"); ax.set_ylabel("Δπ"); ax.set_title(f"on-policy training curves · n_mc={nm_sel}")
+            ax.legend(fontsize=6.5, ncol=2); fig.tight_layout(); show(fig)
     else:
-        st.info("Set n_mc max / MDP draws, then click **Run n_mc sweep**.")
+        st.info("Set n_mc max / MDP draws, then click **Run training** — one run fills the gap curves and the recovery panels.")
 
-# ── ④ policy recovery (on + off) ──
+
+# ── ④ α-div morph ──
 with t4:
-    st.subheader("Policy recovery — π* (target) vs π_θ (DPO-trained), both regimes")
-    nmc_one = st.select_slider("n_mc", [1, 2, 4, 8, 16], value=1)
-    st.markdown(r"Trains under each $\Omega$ and overlays $\pi_\theta$ (solid) on the target "
-                r"$\pi^*_\Omega$ (dashed) across every $(\ell,s,a)$ index. **on-policy** uses "
-                r"$\pi^*_\Omega$ rollouts, **off-policy** uses $\pi_{\mathrm{ref}}$ rollouts.")
-    if st.button("▶ Train & compare (on + off)", type="primary"):
-        rng = np.random.default_rng(0)
-        rew = rewards_for(depth); al = calib(peak, eps, depth)
-        data_off = make_dataset(rew, eps, GAMMA, rng, npairs)
-        pb = st.progress(0.0, text="training…")
-        regimes = [("on", r"on-policy ($\pi^*_\Omega$ rollouts)"),
-                   ("off", r"off-policy ($\pi_{\mathrm{ref}}$ rollouts)")]
-        figs = {}
-        for ri, (regime, label) in enumerate(regimes):
-            fig, axes = plt.subplots(4, 2, figsize=(11, 10)); axes = axes.ravel()
-            for i, rk in enumerate(REGKEYS):
-                pb.progress((ri * len(REGKEYS) + i) / (2 * len(REGKEYS)),
-                            text=f"{regime}-policy · {REG[rk].label} ({i+1}/{len(REGKEYS)})")
-                sol = solve_dp(rk, rew, uniform_pis(depth), al[rk], GAMMA, eps)
-                data = make_dataset_policy(rew, eps, GAMMA, rng, npairs, sol.pistar) if regime == "on" else data_off
-                cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nmc_one)
-                _, g, pol = train_one(rk, rew, al[rk], data, cfg, eps, rng)
-                star = [sol.pistar[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]
-                est = [pol[l, s, a] for l in range(depth) for s in range(SN) for a in range(NA)]
-                ax = axes[i]
-                ax.plot(star, "--", color="#444", marker="o", ms=2.5, lw=1.0, label="π*")
-                ax.plot(est, "-", color=COLORS[rk], marker="s", ms=2.5, lw=2.4 if rk == "kl" else 1.6, label="π_θ")
-                ax.set_title(f"{REG[rk].label} (α={al[rk]:.2f}) Δπ={g:.3f}", fontsize=9, color=COLORS[rk])
-                ax.set_ylim(0, 1)
-                if i == 0:
-                    ax.legend(fontsize=7)
-            axes[-1].axis("off")
-            fig.suptitle(f"{regime}-policy · x = (layer, state, action) · n_mc={nmc_one} · peak={peak}", y=1.0)
-            fig.tight_layout(); figs[regime] = (fig, label)
-        pb.empty()
-        cols = st.columns(2)   # on | off side by side (2 per row); click an image to enlarge
-        for (regime, _), col in zip(regimes, cols):
-            fig, label = figs[regime]
-            col.markdown(f"**{label}**")
-            show(fig, col)
-    else:
-        st.info("Pick n_mc, then click **Train & compare (on + off)**.")
-
-# ── ⑤ α-div morph ──
-with t5:
     st.subheader("α-divergence morph — same α, sweep the parameter a")
     st.markdown(r"The α-divergence family recovers four of the seven: $a\to 0$ = Reverse-KL, "
                 r"$a=0.5$ = sq. Hellinger, $a\to 1$ = KL, $a=2$ = Pearson $\chi^2$. "
@@ -376,8 +372,8 @@ with t5:
     ax.legend(fontsize=8, ncol=2); ax.grid(alpha=0.2)
     fig.tight_layout(); show(fig)
 
-# ── ⑥ c(s') vs c(s',a') admissibility ablation (Dirichlet-sampled inner values) ──
-with t6:
+# ── ⑤ c(s') vs c(s',a') admissibility ablation (Dirichlet-sampled inner values) ──
+with t5:
     st.subheader("c(s') vs c(s',a') — admissibility ablation")
     st.markdown(r"""
 Instead of hand-picking the inner values, we **sample them from a Dirichlet** over all states
