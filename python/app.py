@@ -24,7 +24,7 @@ import regularizers as rg
 from regularizers import REG, REGKEYS, COLORS, SHORT, make_adiv, is_admissible
 from mdp import new_rewards, uniform_pis, solve_dp, transP, SN, NA
 from inner_term import C_exact, single_state_variance, trajectory_variance
-from dpo import TrainConfig, make_dataset, make_dataset_policy, train_one
+from dpo import TrainConfig, make_dataset, train_one
 from experiments import calibrate, peakiness, mean_std
 
 GAMMA = 0.9
@@ -131,8 +131,9 @@ def c_ablation(peak, eps, depth, conc, n_draws, mdp_seed=0):
 
 
 def nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp):
-    """ONE shared training run: trains every Ω over the n_mc list, on-policy (π*_Ω rollouts) and
-    off-policy (π_ref rollouts), averaged over n_mdp reward draws (mi=0 = the displayed seed-0 MDP).
+    """ONE shared training run on a single uniform-behaviour dataset (as in the JS standalone): trains
+    every Ω over the n_mc list under two INNER-TERM estimators — on-policy (resample n_mc a'~π) and
+    off-policy (single logged a', n_mc ignored) — averaged over n_mdp reward draws (mi=0 = shown MDP).
     Returns the final-gap aggregate AND the trained policies / curves of MDP-0·seed-0 so the SAME
     run feeds both the gap-vs-n_mc plot and the policy-recovery panels."""
     raw = {k: {rk: {nm: [] for nm in nmc_list} for rk in REGKEYS} for k in ("on", "off")}
@@ -144,15 +145,19 @@ def nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp):
         rng = np.random.default_rng(mi)                                  # mi=0 → seed 0 (shown MDP)
         rew = new_rewards(depth, rng)
         al = calibrate(rew, peak, GAMMA, eps)
-        data_off = make_dataset(rew, eps, GAMMA, rng, npairs)
+        # ONE uniform behaviour dataset (as in the JS standalone). on/off = the INNER-TERM estimator,
+        # NOT the data-collection policy:
+        #   on-policy  → resample n_mc fresh a'~π(·|s')   (n_mc matters; non-KL improve with n_mc)
+        #   off-policy → use the single logged a'_data     (n_mc IGNORED; admissibility bites → only
+        #                                                   RKL gives noise/bias-free C → clean win)
+        data = make_dataset(rew, eps, GAMMA, rng, npairs)
         for rk in REGKEYS:
-            sol = solve_dp(rk, rew, uniform_pis(depth), al[rk], GAMMA, eps)
-            data_on = make_dataset_policy(rew, eps, GAMMA, rng, npairs, sol.pistar)
             for nm in nmc_list:
                 for sd in range(seeds):
-                    cfg = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm)
-                    con, gon, pon = train_one(rk, rew, al[rk], data_on, cfg, eps, rng)
-                    cof, gof, pof = train_one(rk, rew, al[rk], data_off, cfg, eps, rng)
+                    cfg_on = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, off_policy=False)
+                    cfg_off = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, off_policy=True)
+                    con, gon, pon = train_one(rk, rew, al[rk], data, cfg_on, eps, rng)
+                    cof, gof, pof = train_one(rk, rew, al[rk], data, cfg_off, eps, rng)
                     raw["on"][rk][nm].append(gon); raw["off"][rk][nm].append(gof)
                     if mi == 0 and sd == 0:
                         pols["on"][rk][nm], pols["off"][rk][nm] = pon, pof
@@ -296,16 +301,25 @@ with t2:
 # ── ③ §4.3 training: ONE run → gap-vs-n_mc + policy recovery (shared) ──
 with t3:
     st.subheader("§4.3 — one training run feeds the n_mc gap curves AND policy recovery")
-    st.markdown(r"Trains every $\Omega$ over the $n_{mc}$ list, **on-policy** ($\pi^*_\Omega$ rollouts) "
-                r"and **off-policy** ($\pi_{\mathrm{ref}}$ rollouts). One run produces both the "
-                r"$\Delta_\pi$-vs-$n_{mc}$ curves and the $\pi^*$-vs-$\pi_\theta$ panels (pick $n_{mc}$ below).")
-    with st.expander("What is n_mc, and why does it apply to off-policy too?"):
+    st.markdown(r"One **uniform** behaviour dataset (as in the JS standalone). Trains every $\Omega$ "
+                r"over the $n_{mc}$ list under two **inner-term estimators**: **on-policy** (resample "
+                r"$n_{mc}$ fresh $a'\sim\pi_\theta(\cdot|s')$) and **off-policy** (use the single logged "
+                r"$a'_{\mathrm{data}}$). One run produces both the $\Delta_\pi$-vs-$n_{mc}$ curves and "
+                r"the $\pi^*$-vs-$\pi_\theta$ panels (pick $n_{mc}$ below).")
+    with st.expander("What do on/off-policy and n_mc mean here? (matches the JS standalone)"):
         st.markdown(r"""
-**on/off-policy = the behaviour policy that *collected the data***, not whether rollouts happen
-(off-policy still rolls out — from $\pi_{\mathrm{ref}}$). **$n_{mc}$ is a training-time quantity:**
-to evaluate the non-KL implicit reward at a logged $(s,a,s')$ you must estimate the inner term by
-drawing $n_{mc}$ next-state actions $a'\sim\pi_\theta(\cdot|s')$ at each logged $s'$ — in **both**
-regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ while non-KL improve.""")
+**on/off-policy = how the inner term $C_\Omega(s')$ is estimated**, not the data-collection policy
+(the data is the *same* uniform-behaviour set in both). To evaluate the non-KL implicit reward at a
+logged $(s,a,s')$ you must estimate $C_\Omega(s')$:
+
+- **on-policy** — draw $n_{mc}$ fresh next-state actions $a'\sim\pi_\theta(\cdot|s')$. Variance
+  $\propto 1/\sqrt{n_{mc}}$, so non-KL **improve as $n_{mc}$ grows**.
+- **off-policy (extreme)** — use the *single* action $a'_{\mathrm{data}}$ recorded in the trajectory;
+  **$n_{mc}$ is ignored** (bars are flat across $n_{mc}$). Now admissibility bites: only the admissible
+  $\Omega$ can compute $C_\Omega$ from $(s,a,s')$ **alone** with no bias.
+
+KL/RKL has $\Phi_{\mathrm{KL}}\equiv$ const ⇒ $C_\Omega$ is noise- **and** bias-free in *both* modes ⇒
+flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissibility fingerprint.""")
     cc1, cc2 = st.columns(2)
     nmc_max = cc1.select_slider("n_mc max", [4, 8, 16], value=16)
     n_mdp = cc2.slider("MDP draws to average", 1, 20, 1,
@@ -332,8 +346,8 @@ regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ whi
         if view == "grouped bars":
             fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), sharey=True)
             x = np.arange(len(nmc_list)); w = 0.8 / len(REGKEYS)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
-                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
+                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
                 for j, rk in enumerate(REGKEYS):
                     mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
                     sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
@@ -348,8 +362,8 @@ regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ whi
             fig.tight_layout(); show(fig)
         else:
             fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
-                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
+                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
                 for rk in REGKEYS:
                     mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
                     sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
@@ -362,12 +376,12 @@ regimes. KL avoids it ($C_{\mathrm{KL}}\equiv 1$), so KL is flat in $n_{mc}$ whi
         st.markdown("**Policy recovery from this run** — π* (dashed) vs π_θ (solid). Pick the budget:")
         nm_sel = st.select_slider("n_mc for the recovery panels", nmc_list, value=nmc_list[0])
         rc1, rc2 = st.columns(2)
-        rc1.markdown(r"**on-policy ($\pi^*_\Omega$)**"); show(fig_recovery(pols["on"], nm_sel, al, rew, "on-policy"), rc1)
-        rc2.markdown(r"**off-policy ($\pi_{\mathrm{ref}}$)**"); show(fig_recovery(pols["off"], nm_sel, al, rew, "off-policy"), rc2)
+        rc1.markdown(r"**on-policy inner (resample $n_{mc}$)**"); show(fig_recovery(pols["on"], nm_sel, al, rew, "on-policy"), rc1)
+        rc2.markdown(r"**off-policy inner (logged $a'$)**"); show(fig_recovery(pols["off"], nm_sel, al, rew, "off-policy"), rc2)
         with st.expander("training curves (gap vs SGD step) at the selected n_mc — on AND off-policy"):
             fig, axes = plt.subplots(1, 2, figsize=(12, 3.6), sharey=True)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy ($\pi^*_\Omega$)"),
-                                 (axes[1], "off", r"off-policy ($\pi_{\mathrm{ref}}$)")]:
+            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
+                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
                 for rk in REGKEYS:
                     cv = curves[key][rk][nm_sel]
                     ax.plot(np.linspace(0, steps, len(cv)), cv, color=COLORS[rk], label=REG[rk].label, **kl_kw(rk, 1.5))
