@@ -484,8 +484,9 @@ export function initT3(){
   function svgToBlob(svgEl){
     const clone=svgEl.cloneNode(true);
     clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+    clone.style.background="#1c1825"; // merge into the single style attr (avoids a duplicate style=)
     const css='<style>text{font-family:Georgia,serif}</style>';
-    const body=clone.outerHTML.replace(/<svg([^>]*)>/, '<svg$1 style="background:#1c1825">'+css);
+    const body=clone.outerHTML.replace(/(<svg[^>]*>)/, '$1'+css); // inject CSS after the tag, no new attr
     return new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+body],{type:"image/svg+xml"});
   }
   function download(blob,name){
