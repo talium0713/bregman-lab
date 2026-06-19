@@ -270,9 +270,10 @@
       <b>ε</b>: chance a chosen action lands in a different next state. ·
       <b>batch</b>: SGD minibatch; smaller keeps estimator noise from averaging away.
     </div>
-    <div class="seg" id="t3-offp" style="max-width:460px">
-      <button data-v="on" class="on">inner term: on-policy · resample a' from π(·|s')</button>
-      <button data-v="off">inner term: extreme off-policy · use data a' only</button>
+    <div class="seg" id="t3-offp" style="max-width:680px">
+      <button data-v="off_on" class="on">off-on-policy (Dyna) · resample a' from π(·|s')</button>
+      <button data-v="off">off-policy · data a' only</button>
+      <button data-v="on">on-policy · sampler rolls out trajectories</button>
     </div>
     <div class="mono" id="t3-chips" style="font-size:10.5px;line-height:1.9;margin:-4px 0 10px"></div>
     <div class="card" style="padding:12px">
@@ -332,8 +333,12 @@
     <div class="progress"><div id="t3-prog"></div></div>
     <div class="mono" style="font-size:10.5px;color:var(--faint);margin-bottom:10px" id="t3-status">Idle — γ=0.9, 300 Adam steps · A mode default · adjustable: ε, batch, gradient mode, off-policy. Press "Train" to run.</div>
 
+    <div id="t3-nmcsel-wrap" style="display:none;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="mono" style="font-size:10.5px;color:var(--dim)">View n_mc case:</span>
+      <div class="seg" id="t3-nmcsel" style="max-width:320px"></div>
+    </div>
     <div class="card" style="padding:12px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:6px">Training curves — policy gap = mean TV(π_θ, π*_Ω) over states (lower is better, averaged over seeds)</div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-curve-title">Training curves — policy gap = mean TV(π_θ, π*_Ω) over states (lower is better, averaged over seeds)</div>
       <svg id="t3-curves" viewBox="0 0 560 180" style="width:100%"></svg>
     </div>
     <div class="card" style="padding:12px">
@@ -945,8 +950,9 @@ function initT2(){
 function initT3(){
 
   const GAMMA=0.9, STEPS=300, LR=0.08;
-  let nmc=2, npairs=600, nseeds=3, targetPeak=0.6, EPS=0.2, BATCH=16, offPolicy=false, DEPTH=4;
+  let nmc=2, npairs=600, nseeds=3, targetPeak=0.6, EPS=0.2, BATCH=16, policyMode="off_on", DEPTH=4;
   let lastRun=null;
+  let lastSweep=null;   // {out, nms} from the most recent sweep, for the per-n_mc viewer
   let rewards=newRewards(DEPTH);
   let dataset=null;   // shared preference pairs
   let alphas=null;    // calibrated α per divergence (peak-matched)
@@ -1006,7 +1012,7 @@ function initT3(){
         Cs.push(E);
       }
       /* off-policy: data action ~ uniform behavior; bias = |E_uniform[Φ] − E_π*[Φ]| */
-      Sds.push(offPolicy ? Math.abs(Euni-E) : Math.sqrt(Math.max(E2-E*E,0)));
+      Sds.push(policyMode==="off" ? Math.abs(Euni-E) : Math.sqrt(Math.max(E2-E*E,0)));
     }
     const mu=Cs.reduce((a,b)=>a+b,0)/Cs.length;
     return{
@@ -1018,6 +1024,7 @@ function initT3(){
   function drawCStats(){
     const svg=$("t3-cstats");if(!svg)return;svg.innerHTML="";
     const W=560,H=190,mL=46,mR=10,mT=30,mB=44;
+    /* legend (plain language): solid = state-to-state spread, dashed = 1-sample MC noise */
     const legSw=(x,dash)=>{const r=el("rect",{x,y:6,width:12,height:9,fill:"#9b93a8",opacity:dash?0.4:0.9,rx:2});
       if(dash){r.setAttribute("stroke","#ece7df");r.setAttribute("stroke-dasharray","2 2");r.setAttribute("stroke-width","0.7");}svg.appendChild(r);};
     legSw(mL,false);svg.appendChild(el("text",{x:mL+16,y:14,fill:"#9b93a8","font-size":9},"C_Ω varies across states"));
@@ -1086,6 +1093,7 @@ function initT3(){
     const m=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
     const v=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
     const polAt=(l,s)=>softmax3(th[l][s],1);
+    const snapshot=()=>Array.from({length:DEPTH},(_,l)=>Array.from({length:SN},(_,s)=>polAt(l,s)));
     const gap=()=>{
       let g=0;
       for(let l=0;l<DEPTH;l++)for(let s=0;s<SN;s++){
@@ -1094,49 +1102,75 @@ function initT3(){
       }
       return g/(DEPTH*SN);
     };
-    /* inner term C_Ω(s'). on-policy: draw n_mc actions from π(·|s').
-       off-policy (extreme): use the single data-recorded next action a'_data (no resampling). */
-    const drawInner=(pol,aData,ref)=>{
-      if(R.constC)return{C:0,as:[]}; // KL: C_Ω ≡ const → no estimation, no noise, mode-invariant
-      if(offPolicy){
-        const aj=aData;
-        if(aj==null)return{C:0,as:[]}; // terminal: no next action recorded
-        const phi = regK==="euc" ? (pol[aj]-ref[aj]) : R.Phi(Math.max(pol[aj],1e-12)/ref[aj]);
-        return{C: regK==="euc" ? phi-R.omega(pol,ref) : phi, as:[aj]};
-      }
-      const as=[];let e=0;
-      if(regK==="euc"){for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=pol[aj]-ref[aj];}return{C:e/nmcUse-R.omega(pol,ref),as};}
-      for(let j=0;j<nmcUse;j++){const aj=sampleCat(pol);as.push(aj);e+=R.Phi(Math.max(pol[aj],1e-12)/ref[aj]);}
-      return{C:e/nmcUse,as};
+    /* trajectory step: {l,s,a,sn} (off / off_on) or {l,s,acts,i,sn} (on). chosen action: */
+    const chosenA=st=>st.acts?st.acts[st.i]:st.a;
+    /* C_Ω(π(·|s')) over a given action set — the only inner formula (KL→const by Φ_KL≡1). */
+    const innerValue=(pol,acts,ref)=>{
+      if(R.constC||acts.length===0)return{C:0,as:acts};
+      let e=0;
+      if(regK==="euc"){for(const aj of acts)e+=pol[aj]-ref[aj];return{C:e/acts.length-R.omega(pol,ref),as:acts};}
+      for(const aj of acts)e+=R.Phi(Math.max(pol[aj],1e-12)/ref[aj]);
+      return{C:e/acts.length,as:acts};
     };
-    /* score a trajectory: deterministic part (exact) + inner part; cache inner samples.
-       aData for state s' = the action taken at s' in this same trajectory (next transition's a). */
+    /* actions feeding C at next state s', per policyMode:
+       off = logged a' · on = stored {a_j} sampled at s' · off_on = n_mc fresh draws from current π(·|s') */
+    const innerActions=(trans,i,polNext)=>{
+      if(policyMode==="off"){const aN=(i+1<trans.length)?chosenA(trans[i+1]):null;return aN==null?[]:[aN];}
+      if(policyMode==="on")return trans[i+1].acts;
+      const as=[];for(let j=0;j<nmcUse;j++)as.push(sampleCat(polNext));return as;
+    };
     const scoreTraj=(trans,pols)=>{
       let sc=0;const inner=[];
       for(let i=0;i<trans.length;i++){
-        const{l,s,a,sn}=trans[i];
+        const st=trans[i],l=st.l,s=st.s,sn=st.sn,a=chosenA(st);
         sc+=aReg*R.gradDPO(pols[l][s],refOf(l,s))[a];
         if(sn>=0){
-          const aData=(i+1<trans.length)?trans[i+1].a:null;
-          const di=drawInner(pols[l+1][sn], aData, refOf(l+1,sn));
+          const acts=innerActions(trans,i,pols[l+1][sn]);
+          const di=innerValue(pols[l+1][sn], acts, refOf(l+1,sn));
           sc+=aReg*ISIGN*di.C;
           inner.push({sn,l,as:di.as});
         }
       }
       return{sc,inner};
     };
+    /* on-policy (cat2): a lagged sampler π_θ rolls out trajectories; store n_mc actions + chosen index,
+       reused both to continue the trajectory and to estimate C. n_mc=1 ⇒ ordinary trajectory. */
+    const rolloutOn=sampler=>{
+      let s=Math.floor(Math.random()*SN);const trans=[];let Rret=0;
+      for(let l=0;l<DEPTH;l++){
+        const p=sampler[l][s];const acts=[];for(let j=0;j<nmcUse;j++)acts.push(sampleCat(p));
+        const i=Math.floor(Math.random()*nmcUse),a=acts[i];
+        Rret+=Math.pow(GAMMA,l)*rewards[l][s][a];
+        const sn=l<DEPTH-1?sampleCat(transP(a,EPS)):-1;
+        trans.push({l,s,acts,i,sn});s=sn;
+      }
+      return{trans,R:Rret};
+    };
+    const makeDataOn=(sampler,nPairs)=>{
+      const d=[];
+      for(let k=0;k<nPairs;k++){const t1=rolloutOn(sampler),t2=rolloutOn(sampler);
+        const pw=1/(1+Math.exp(-(t1.R-t2.R)));
+        d.push(Math.random()<pw?{w:t1.trans,l:t2.trans}:{w:t2.trans,l:t1.trans});}
+      return d;
+    };
+    /* "on" (cat2): generate own data from a lagged π_θ snapshot, regenerate every RESAMPLE_EVERY steps.
+       off / off_on use the passed-in (off-policy) `data`. */
+    const RESAMPLE_EVERY=25, ON_PAIRS=Math.min(npairs,600);
+    let trainData = policyMode==="on" ? makeDataOn(snapshot(),ON_PAIRS) : data;
     const curve=[];let t=0;
     for(let step=0;step<STEPS;step++){
+      if(policyMode==="on"&&step>0&&step%RESAMPLE_EVERY===0)trainData=makeDataOn(snapshot(),ON_PAIRS);
       const pols=Array.from({length:DEPTH},(_,l)=>Array.from({length:SN},(_,s)=>polAt(l,s)));
       const grad=Array.from({length:DEPTH},()=>Array.from({length:SN},()=>[0,0,0]));
       for(let b=0;b<BATCH;b++){
-        const pair=data[Math.floor(Math.random()*data.length)];
+        const pair=trainData[Math.floor(Math.random()*trainData.length)];
         const Sw=scoreTraj(pair.w,pols), Sl=scoreTraj(pair.l,pols);
         const d=Sw.sc-Sl.sc;
         const coef=-1/(1+Math.exp(d)); // dℓ/dd = −σ(−d); carries the MC noise of d
         /* outer gradient: through the chosen-action implicit reward */
         const accOuter=(trans,sign)=>{
-          for(const{l,s,a}of trans){
+          for(const st of trans){
+            const l=st.l,s=st.s,a=chosenA(st);
             const pol=pols[l][s];
             for(let bb=0;bb<3;bb++)grad[l][s][bb]+=coef*sign*aReg*R.dGdTheta(pol,a,bb,refOf(l,s));
           }
@@ -1475,6 +1509,27 @@ function initT3(){
     });
   }
 
+  /* render one n_mc case (training curves + policy panels) and tag the titles with the n_mc */
+  function showNmc(out,nm){
+    drawCurves(out[nm]);
+    drawPolicies(out[nm],nm);
+    const ct=$("t3-curve-title");
+    if(ct)ct.textContent=`Training curves — policy gap = mean TV(π_θ, π*_Ω) over states · n_mc=${nm} (lower is better, seed mean)`;
+  }
+  /* segmented n_mc selector shown after a sweep: click a case to view its curves & policy panels */
+  function buildNmcSel(out,nms,cur){
+    const wrap=$("t3-nmcsel-wrap"),seg=$("t3-nmcsel");
+    if(!wrap||!seg)return;
+    seg.innerHTML="";
+    nms.forEach(nm=>{
+      const b=document.createElement("button");b.textContent="n_mc = "+nm;
+      if(nm===cur)b.classList.add("on");
+      b.addEventListener("click",()=>{seg.querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");showNmc(out,nm);});
+      seg.appendChild(b);
+    });
+    wrap.style.display="flex";
+  }
+
   /* controls */
   $("t3-peak").addEventListener("input",e=>{targetPeak=parseFloat(e.target.value);$("t3-peak-v").textContent=targetPeak.toFixed(2);});
   $("t3-peak").addEventListener("change",()=>{calibrate();$("t3-status").textContent=`α recalibrated — target peak=${targetPeak.toFixed(2)}. Run training to compare at these α.`;});
@@ -1491,16 +1546,18 @@ function initT3(){
   $("t3-bs").addEventListener("input",e=>{BATCH=Math.pow(2,parseInt(e.target.value));$("t3-bs-v").textContent=BATCH;});
   $("t3-offp").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
     $("t3-offp").querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
-    offPolicy=(b.dataset.v==="off");
-    $("t3-nmc").disabled=offPolicy;
-    $("t3-nmc").style.opacity=offPolicy?0.4:1;
+    policyMode=b.dataset.v;                          // "off" | "off_on" | "on"
+    const nmcIgnored=(policyMode==="off");
+    $("t3-nmc").disabled=nmcIgnored;
+    $("t3-nmc").style.opacity=nmcIgnored?0.4:1;
     const ct=$("t3-cstats-title");
-    if(ct)ct.textContent=offPolicy
+    if(ct)ct.textContent=(policyMode==="off")
       ? "Is the inner term C_Ω the same at every state?  solid = how much C_Ω varies state-to-state · dashed = |bias| of the single-data-a′ estimate (log). The admissible Ω stays ≈0; the rest are biased."
       : "Is the inner term C_Ω the same at every state?  solid = how much C_Ω varies state-to-state · dashed = noise of a 1-sample Monte-Carlo estimate (log). The admissible Ω is ≈0 on both ⇒ computable from (s,a,s′) with no a′ sample; the rest vary AND are noisy.";
-    $("t3-status").textContent=offPolicy
-      ?"Extreme off-policy — inner term evaluated only at the data-recorded a' (1-sample, n_mc ignored). Sharpest demonstration that KL is the only divergence admissible from data alone."
-      :"On-policy inner — resample n_mc fresh actions a' from π(·|s'). The n_mc slider matters again.";
+    $("t3-status").textContent=
+      policyMode==="off" ? "Off-policy (cat 1) — inner term from the single logged a' (n_mc ignored). Sharpest: only the admissible Ω is unbiased from data alone."
+      : policyMode==="on" ? "On-policy (cat 2) — a lagged sampler rolls out the trajectories; the stored n_mc actions both estimate C and continue the trajectory (regenerated every 25 steps)."
+      : "Off-on-policy (cat 3, Dyna) — off-policy data states, but a' is freshly resampled (n_mc) from the current π(·|s'). The n_mc slider matters.";
     drawCStats();
   }));
   $("t3-newmdp").addEventListener("click",()=>{
@@ -1508,7 +1565,7 @@ function initT3(){
     $("t3-status").textContent="New MDP and preference data generated, α recalibrated — all seven Ω share the same data.";
   });
   function summarize(out){
-    const o={meta:{targetPeak,EPS,BATCH,DEPTH,offPolicy,npairs,nseeds,STEPS,GAMMA,LR},
+    const o={meta:{targetPeak,EPS,BATCH,DEPTH,policyMode,npairs,nseeds,STEPS,GAMMA,LR},
       alphas:Object.fromEntries(REGKEYS.map(rk=>[rk,alphas[rk]])),
       gaps:{}};
     for(const nm of Object.keys(out)){o.gaps[nm]={};
@@ -1522,9 +1579,9 @@ function initT3(){
     if(running)return;
     runAll([nmc],out=>{
       lastRun=summarize(out);
-      drawCurves(out[nmc]);
+      lastSweep=null;$("t3-nmcsel-wrap").style.display="none";   // single run: no per-case selector
       drawBars(out,`Final policy gap @ n_mc=${nmc} (± seed std)`);
-      drawPolicies(out[nmc],nmc);
+      showNmc(out,nmc);
       $("t3-status").textContent=`Done — n_mc=${nmc}, N_pairs=${npairs}, seeds=${nseeds}, calibrated α. Compare KL stability vs non-KL noise in the policy panels.`;
     });
   });
@@ -1532,13 +1589,14 @@ function initT3(){
     if(running)return;
     runAll([1,4,16],out=>{
       lastRun=summarize(out);
-      drawCurves(out[1]);
-      drawBars(out,"n_mc sweep — final policy gap (± seed std) · curves & policy panels shown at n_mc=1");
-      drawPolicies(out[1],1);
-      $("t3-status").textContent="Sweep done — KL bars stay flat across n_mc, non-KL bars fall as n_mc grows: the off-policy admissibility fingerprint.";
+      lastSweep={out,nms:[1,4,16]};
+      drawBars(out,"n_mc sweep — final policy gap (± seed std) · pick a case below for its curves & policy panels");
+      buildNmcSel(out,[1,4,16],1);
+      showNmc(out,1);
+      $("t3-status").textContent="Sweep done — use the “View n_mc case” buttons above the curves to inspect each case’s training curve & policy recovery. KL stays flat; non-KL improve as n_mc grows.";
     });
   });
-  const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}${offPolicy?"_offpol":""}`;
+  const stamp=()=>`peak${targetPeak.toFixed(2)}_eps${EPS.toFixed(2)}_b${BATCH}_L${DEPTH}_${policyMode}`;
   $("t3-dl-sweep").addEventListener("click",()=>dlSVG("t3-sweep-plot",`alpha_peak_sweep_${stamp()}.svg`));
   $("t3-dl-cprobe").addEventListener("click",()=>dlSVG("t3-cprobe",`c_admissibility_probe_${stamp()}.svg`));
   $("t3-cconc")&&$("t3-cconc").addEventListener("input",e=>{cConc=parseFloat(e.target.value);$("t3-cconc-v").textContent=cConc.toFixed(2);drawCProbe();});

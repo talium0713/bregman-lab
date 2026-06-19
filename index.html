@@ -198,9 +198,10 @@
       <b>ε</b>: chance a chosen action lands in a different next state. ·
       <b>batch</b>: SGD minibatch; smaller keeps estimator noise from averaging away.
     </div>
-    <div class="seg" id="t3-offp" style="max-width:460px">
-      <button data-v="on" class="on">inner term: on-policy · resample a' from π(·|s')</button>
-      <button data-v="off">inner term: extreme off-policy · use data a' only</button>
+    <div class="seg" id="t3-offp" style="max-width:680px">
+      <button data-v="off_on" class="on">off-on-policy (Dyna) · resample a' from π(·|s')</button>
+      <button data-v="off">off-policy · data a' only</button>
+      <button data-v="on">on-policy · sampler rolls out trajectories</button>
     </div>
     <div class="mono" id="t3-chips" style="font-size:10.5px;line-height:1.9;margin:-4px 0 10px"></div>
     <div class="card" style="padding:12px">
@@ -260,8 +261,12 @@
     <div class="progress"><div id="t3-prog"></div></div>
     <div class="mono" style="font-size:10.5px;color:var(--faint);margin-bottom:10px" id="t3-status">Idle — γ=0.9, 300 Adam steps · A mode default · adjustable: ε, batch, gradient mode, off-policy. Press "Train" to run.</div>
 
+    <div id="t3-nmcsel-wrap" style="display:none;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="mono" style="font-size:10.5px;color:var(--dim)">View n_mc case:</span>
+      <div class="seg" id="t3-nmcsel" style="max-width:320px"></div>
+    </div>
     <div class="card" style="padding:12px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:6px">Training curves — policy gap = mean TV(π_θ, π*_Ω) over states (lower is better, averaged over seeds)</div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px" id="t3-curve-title">Training curves — policy gap = mean TV(π_θ, π*_Ω) over states (lower is better, averaged over seeds)</div>
       <svg id="t3-curves" viewBox="0 0 560 180" style="width:100%"></svg>
     </div>
     <div class="card" style="padding:12px">
