@@ -53,7 +53,18 @@ class TrainConfig:
     lr: float = 0.08
     batch: int = 16
     n_mc: int = 2
-    off_policy: bool = False
+    # inner-term / data regime (see the three categories):
+    #   "off"    — category 1 (pure off-policy): use the single logged next action a'_data; no
+    #              resampling, n_mc ignored.
+    #   "off_on" — category 3 (off-on-policy / Dyna): off-policy data states, but a' is FRESHLY
+    #              resampled (n_mc draws) from the current π_θ(·|s') at training time.
+    #   "on"     — category 2 (on-policy): a lagged sampler (snapshot of π_θ) rolls out the
+    #              trajectories; at each state it draws n_mc actions, STORES them with the chosen
+    #              index, and reuses those stored {a_j} both to continue the trajectory and to
+    #              estimate C_Ω.  n_mc=1 reduces to an ordinary (s,a,s',a',…) trajectory.
+    policy_mode: str = "off_on"
+    resample_every: int = 25     # "on": re-snapshot π_θ → sampler and regenerate the batch every k steps
+    n_pairs: int = 600           # "on": number of preference pairs regenerated per snapshot
 
 
 def _sample_cat(p: np.ndarray, rng: np.random.Generator) -> int:
@@ -117,6 +128,38 @@ def make_dataset_policy(rewards, eps, gamma, rng, n, policy):
     return data
 
 
+def rollout_onpolicy(rewards, eps, gamma, rng, sampler, n_mc):
+    """Category-2 on-policy rollout from a (lagged) sampler snapshot `sampler` (depth,SN,NA).
+    At each state draw n_mc actions {a_j}~sampler(·|s), pick one (index i) to take, and STORE the
+    whole set with i.  The stored {a_j} are reused at training time to estimate C_Ω(π(·|s)).
+    Returns steps (l, s, acts, i, sn) and the discounted return.  n_mc=1 ⇒ ordinary trajectory."""
+    depth = rewards.shape[0]
+    s = int(rng.integers(SN))
+    trans = []
+    Rret = 0.0
+    for l in range(depth):
+        p = sampler[l, s] / sampler[l, s].sum()
+        acts = rng.choice(NA, size=n_mc, p=p)
+        i = int(rng.integers(n_mc))
+        a = int(acts[i])
+        Rret += (gamma ** l) * rewards[l, s, a]
+        sn = _sample_cat(transP(a, eps), rng) if l < depth - 1 else -1
+        trans.append((l, s, acts, i, sn))
+        s = sn
+    return trans, Rret
+
+
+def make_dataset_onpolicy(rewards, eps, gamma, rng, n, sampler, n_mc):
+    """Bradley–Terry pairs over category-2 on-policy trajectories rolled out from a lagged sampler."""
+    data = []
+    for _ in range(n):
+        t1, R1 = rollout_onpolicy(rewards, eps, gamma, rng, sampler, n_mc)
+        t2, R2 = rollout_onpolicy(rewards, eps, gamma, rng, sampler, n_mc)
+        pw = 1.0 / (1.0 + np.exp(-(R1 - R2)))
+        data.append((t1, t2) if rng.random() < pw else (t2, t1))
+    return data
+
+
 def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainConfig,
               eps: float, rng: np.random.Generator, ref=None, occ=None):
     """Train tabular θ on the preference data; returns (curve, final_gap, policy).
@@ -137,6 +180,9 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
     def pol_at(l, s):
         return softmax3(th[l, s], 1.0)
 
+    def snapshot():
+        return np.array([[pol_at(l, s) for s in range(SN)] for l in range(depth)])
+
     def gap():
         g = 0.0
         for l in range(depth):
@@ -145,41 +191,62 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
                 g += w * 0.5 * np.abs(pol_at(l, s) - tgt[l, s]).sum()
         return g / W
 
-    # ---- inner term C_Ω(s'); returns value and the sampled a' (for the A-direction grad).
-    #      NO KL special case: KL flows through the SAME estimator. Φ_KL(u)≡1 makes every draw
-    #      equal to the constant 1 (variance 0), and that constant cancels in d = S_w − S_l
-    #      because every fixed-depth trajectory has the same number of inner terms. ----
-    def draw_inner(pol, a_data, rf):
-        u = lambda a: max(pol[a], 1e-12) / rf[a]
-        if cfg.off_policy:
-            if a_data is None:
-                return 0.0, []
-            if R.is_euc:
-                return float((pol[a_data] - rf[a_data]) - R.omega(pol, rf)), [a_data]
-            return float(R.Phi(u(a_data))), [a_data]
-        # on-policy: n_mc fresh draws from π(·|s'); vectorized over n_mc (fast for large budgets)
-        acts = rng.choice(NA, size=cfg.n_mc, p=pol / pol.sum())
+    # trajectory step: 4-tuple (l,s,a,sn) [off / off_on] or 5-tuple (l,s,acts,i,sn) [on].
+    # unpack → (l, s, chosen a, sn, stored acts | None).
+    def unpack(step):
+        if len(step) == 5:
+            l, s, acts, i, sn = step
+            acts = np.asarray(acts, dtype=int)
+            return l, s, int(acts[i]), sn, acts
+        l, s, a, sn = step
+        return l, s, a, sn, None
+
+    # ---- C_Ω(π(·|s')) over a given action set — the ONLY inner formula (KL→const by Φ_KL≡1). ----
+    def inner_value(pol, acts, rf):
+        acts = np.asarray(acts, dtype=int)
+        if acts.size == 0:
+            return 0.0, acts
         if R.is_euc:
-            e = float(np.mean(pol[acts] - rf[acts]))
-            return e - R.omega(pol, rf), acts
+            return float(np.mean(pol[acts] - rf[acts])) - R.omega(pol, rf), acts
         uu = np.maximum(pol[acts], 1e-12) / rf[acts]
         return float(np.mean(R.Phi(uu))), acts
+
+    # ---- which actions feed C at the next state s', per policy_mode ----
+    #   off    : the single logged next action a'_data         (category 1)
+    #   on     : the stored {a_j} the sampler drew at s'        (category 2, reused from generation)
+    #   off_on : n_mc fresh draws from the CURRENT π_θ(·|s')    (category 3, Dyna)
+    def inner_actions(trans, i_t, pol_next):
+        if cfg.policy_mode == "off":
+            a_next = unpack(trans[i_t + 1])[2] if i_t + 1 < len(trans) else None
+            return [] if a_next is None else [a_next]
+        if cfg.policy_mode == "on":
+            return unpack(trans[i_t + 1])[4]
+        return rng.choice(NA, size=cfg.n_mc, p=pol_next / pol_next.sum())
 
     def score_traj(trans, pols):
         sc = 0.0
         inner = []
-        for i, (l, s, a, sn) in enumerate(trans):
+        for i_t, step in enumerate(trans):
+            l, s, a, sn, _ = unpack(step)
             sc += alpha * R.grad_dpo(pols[l][s], ref[l, s])[a]
             if sn >= 0:
-                a_data = trans[i + 1][2] if i + 1 < len(trans) else None
-                C, acts = draw_inner(pols[l + 1][sn], a_data, ref[l + 1, sn])
+                acts_used = inner_actions(trans, i_t, pols[l + 1][sn])
+                C, used = inner_value(pols[l + 1][sn], acts_used, ref[l + 1, sn])
                 sc += alpha * INNER_SIGN * C
-                inner.append((sn, l, acts))
+                inner.append((sn, l, used))
         return sc, inner
+
+    # "on" (category 2): a lagged sampler π_θ rolls out the trajectories; the stored {a_j} are reused
+    # for C. Regenerate the batch every `resample_every` steps from a fresh snapshot (the lag);
+    # any `data` passed in is ignored in this mode.
+    if cfg.policy_mode == "on":
+        data = make_dataset_onpolicy(rewards, eps, cfg.gamma, rng, cfg.n_pairs, snapshot(), cfg.n_mc)
 
     curve = []
     t = 0
     for step in range(cfg.steps):
+        if cfg.policy_mode == "on" and cfg.resample_every > 0 and step > 0 and step % cfg.resample_every == 0:
+            data = make_dataset_onpolicy(rewards, eps, cfg.gamma, rng, cfg.n_pairs, snapshot(), cfg.n_mc)
         pols = [[pol_at(l, s) for s in range(SN)] for l in range(depth)]
         grad = np.zeros((depth, SN, NA))
         for _ in range(cfg.batch):
@@ -191,7 +258,8 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
 
             # outer gradient: through the chosen-action implicit reward [∇Ω]_a
             def acc_outer(trans, sign):
-                for (l, s, a, _sn) in trans:
+                for step_ in trans:
+                    l, s, a, _sn, _ = unpack(step_)
                     pol = pols[l][s]
                     rf = ref[l, s]
                     for bb in range(NA):

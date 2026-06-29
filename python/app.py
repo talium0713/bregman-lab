@@ -130,42 +130,50 @@ def c_ablation(peak, eps, depth, conc, n_draws, mdp_seed=0):
     return ns, res_sa, res_s
 
 
+# inner-term regimes in the JS-standalone order: off-on-policy(Dyna) · off-policy(logged) · on-policy(sampler)
+REGIMES = ("off_on", "off", "on")
+REGIME_TITLE = {
+    "off_on": r"off-on-policy / Dyna (resample $n_{mc}$)",
+    "off":    r"off-policy (logged $a'$, $n_{mc}$ ignored)",
+    "on":     r"on-policy (sampler rollouts, stored $n_{mc}$)",
+}
+
+
 def nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp):
-    """ONE shared training run on a single uniform-behaviour dataset (as in the JS standalone): trains
-    every Ω over the n_mc list under two INNER-TERM estimators — on-policy (resample n_mc a'~π) and
-    off-policy (single logged a', n_mc ignored) — averaged over n_mdp reward draws (mi=0 = shown MDP).
-    Returns the final-gap aggregate AND the trained policies / curves of MDP-0·seed-0 so the SAME
-    run feeds both the gap-vs-n_mc plot and the policy-recovery panels."""
-    raw = {k: {rk: {nm: [] for nm in nmc_list} for rk in REGKEYS} for k in ("on", "off")}
-    pols = {k: {rk: {} for rk in REGKEYS} for k in ("on", "off")}        # MDP0/seed0 policy per nm
-    curves = {k: {rk: {} for rk in REGKEYS} for k in ("on", "off")}      # MDP0/seed0 training curve
+    """ONE shared training run: trains every Ω over the n_mc list under all THREE inner-term regimes
+    (JS order) — off-on-policy/Dyna (off-policy data, resample n_mc a'~π), off-policy (single logged a',
+    n_mc ignored), and on-policy (a lagged sampler rolls out the trajectories; stored n_mc actions reused
+    for C) — averaged over n_mdp reward draws (mi=0 = shown MDP). Returns the final-gap aggregate AND the
+    MDP-0·seed-0 policies / curves so the SAME run feeds both the gap plot and the recovery panels."""
+    raw = {k: {rk: {nm: [] for nm in nmc_list} for rk in REGKEYS} for k in REGIMES}
+    pols = {k: {rk: {} for rk in REGKEYS} for k in REGIMES}              # MDP0/seed0 policy per nm
+    curves = {k: {rk: {} for rk in REGKEYS} for k in REGIMES}           # MDP0/seed0 training curve
     total = n_mdp * len(REGKEYS) * len(nmc_list); done = 0
     prog = st.session_state.get("_prog")
     for mi in range(n_mdp):
         rng = np.random.default_rng(mi)                                  # mi=0 → seed 0 (shown MDP)
         rew = new_rewards(depth, rng)
         al = calibrate(rew, peak, GAMMA, eps)
-        # ONE uniform behaviour dataset (as in the JS standalone). on/off = the INNER-TERM estimator,
-        # NOT the data-collection policy:
-        #   on-policy  → resample n_mc fresh a'~π(·|s')   (n_mc matters; non-KL improve with n_mc)
-        #   off-policy → use the single logged a'_data     (n_mc IGNORED; admissibility bites → only
-        #                                                   RKL gives noise/bias-free C → clean win)
-        data = make_dataset(rew, eps, GAMMA, rng, npairs)
+        data = make_dataset(rew, eps, GAMMA, rng, npairs)                # shared off-policy data (off_on & off)
         for rk in REGKEYS:
             for nm in nmc_list:
                 for sd in range(seeds):
-                    cfg_on = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, off_policy=False)
-                    cfg_off = TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, off_policy=True)
-                    con, gon, pon = train_one(rk, rew, al[rk], data, cfg_on, eps, rng)
-                    cof, gof, pof = train_one(rk, rew, al[rk], data, cfg_off, eps, rng)
-                    raw["on"][rk][nm].append(gon); raw["off"][rk][nm].append(gof)
-                    if mi == 0 and sd == 0:
-                        pols["on"][rk][nm], pols["off"][rk][nm] = pon, pof
-                        curves["on"][rk][nm], curves["off"][rk][nm] = con, cof
+                    cfgs = {
+                        "off_on": TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, policy_mode="off_on"),
+                        "off":    TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, policy_mode="off"),
+                        "on":     TrainConfig(gamma=GAMMA, steps=steps, batch=batch, n_mc=nm, policy_mode="on",
+                                              resample_every=25, n_pairs=min(npairs, 500)),
+                    }
+                    for key in REGIMES:
+                        dat = None if key == "on" else data              # on-policy generates its own data
+                        cv, gp, pl = train_one(rk, rew, al[rk], dat, cfgs[key], eps, rng)
+                        raw[key][rk][nm].append(gp)
+                        if mi == 0 and sd == 0:
+                            pols[key][rk][nm] = pl; curves[key][rk][nm] = cv
                 done += 1
                 if prog is not None:
                     prog.progress(done / total, f"MDP {mi+1}/{n_mdp} · {SHORT[rk]} · n_mc={nm}  ({done}/{total})")
-    agg = {k: {rk: {nm: mean_std(raw[k][rk][nm]) for nm in nmc_list} for rk in REGKEYS} for k in ("on", "off")}
+    agg = {k: {rk: {nm: mean_std(raw[k][rk][nm]) for nm in nmc_list} for rk in REGKEYS} for k in REGIMES}
     return agg, pols, curves
 
 
@@ -302,24 +310,28 @@ with t2:
 with t3:
     st.subheader("§4.3 — one training run feeds the n_mc gap curves AND policy recovery")
     st.markdown(r"One **uniform** behaviour dataset (as in the JS standalone). Trains every $\Omega$ "
-                r"over the $n_{mc}$ list under two **inner-term estimators**: **on-policy** (resample "
-                r"$n_{mc}$ fresh $a'\sim\pi_\theta(\cdot|s')$) and **off-policy** (use the single logged "
-                r"$a'_{\mathrm{data}}$). One run produces both the $\Delta_\pi$-vs-$n_{mc}$ curves and "
-                r"the $\pi^*$-vs-$\pi_\theta$ panels (pick $n_{mc}$ below).")
-    with st.expander("What do on/off-policy and n_mc mean here? (matches the JS standalone)"):
+                r"over the $n_{mc}$ list under all **three inner-term regimes** (JS order): "
+                r"**off-on-policy (Dyna)** (off-policy data, resample $n_{mc}$ fresh $a'\sim\pi_\theta(\cdot|s')$), "
+                r"**off-policy** (single logged $a'_{\mathrm{data}}$), and **on-policy** (a lagged sampler rolls "
+                r"out the trajectories; stored $n_{mc}$ actions estimate $C_\Omega$). One run feeds both the "
+                r"$\Delta_\pi$-vs-$n_{mc}$ curves and the $\pi^*$-vs-$\pi_\theta$ panels (pick $n_{mc}$ below).")
+    with st.expander("What do the inner-term regimes / n_mc mean here?  (3-category taxonomy)"):
         st.markdown(r"""
-**on/off-policy = how the inner term $C_\Omega(s')$ is estimated**, not the data-collection policy
-(the data is the *same* uniform-behaviour set in both). To evaluate the non-KL implicit reward at a
-logged $(s,a,s')$ you must estimate $C_\Omega(s')$:
+**The regime = how the inner term $C_\Omega(s')$ is obtained** (the data states are the *same*
+uniform-behaviour set). The three categories:
 
-- **on-policy** — draw $n_{mc}$ fresh next-state actions $a'\sim\pi_\theta(\cdot|s')$. Variance
-  $\propto 1/\sqrt{n_{mc}}$, so non-KL **improve as $n_{mc}$ grows**.
-- **off-policy (extreme)** — use the *single* action $a'_{\mathrm{data}}$ recorded in the trajectory;
-  **$n_{mc}$ is ignored** (bars are flat across $n_{mc}$). Now admissibility bites: only the admissible
-  $\Omega$ can compute $C_\Omega$ from $(s,a,s')$ **alone** with no bias.
+- **off-policy** (category 1) — use the *single* logged action $a'_{\mathrm{data}}$; **$n_{mc}$ ignored**
+  (bars flat across $n_{mc}$). Admissibility bites: only the admissible $\Omega$ is unbiased from
+  $(s,a,s')$ **alone**.
+- **off-on-policy / Dyna** (category 3, the *resample* regime shown here) — off-policy data states, but
+  draw $n_{mc}$ fresh $a'\sim\pi_\theta(\cdot|s')$ from the *current* policy. Variance $\propto 1/\sqrt{n_{mc}}$,
+  so non-admissible $\Omega$ **improve as $n_{mc}$ grows**.
+- **on-policy** (category 2) — a lagged sampler (a snapshot of $\pi_\theta$) rolls out the trajectories;
+  the stored $n_{mc}$ actions both estimate $C_\Omega$ and continue the trajectory (batch regenerated every
+  25 steps). $n_{mc}=1$ ⇒ an ordinary $(s,a,s',a',\dots)$ trajectory.
 
-KL/RKL has $\Phi_{\mathrm{KL}}\equiv$ const ⇒ $C_\Omega$ is noise- **and** bias-free in *both* modes ⇒
-flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissibility fingerprint.""")
+reverse-KL (RKL, $\Phi\equiv$ const) ⇒ $C_\Omega$ is noise- **and** bias-free in *every* regime ⇒ flat in
+$n_{mc}$ and the clear winner off-policy. This is the off-policy admissibility fingerprint.""")
     cc1, cc2 = st.columns(2)
     nmc_max = cc1.select_slider("n_mc max", [4, 8, 16], value=16)
     n_mdp = cc2.slider("MDP draws to average", 1, 20, 1,
@@ -329,9 +341,10 @@ flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissi
                             "new reward tensors from later seeds. More draws = cleaner curves, "
                             "linearly more compute.")
     nmc_list = [2 ** k for k in range(int(np.log2(nmc_max)) + 1)]
-    st.caption(f"This run trains 7 Ω × {len(nmc_list)} n_mc × {seeds} seeds × 2 regimes × {n_mdp} MDP "
-               f"= {7*len(nmc_list)*seeds*2*n_mdp} fits. Python is much slower than the JS standalone "
-               f"(browser JIT), so large `seeds` is heavy. Re-press to recompute.")
+    st.caption(f"This run trains 7 Ω × {len(nmc_list)} n_mc × {seeds} seeds × 3 regimes × {n_mdp} MDP "
+               f"= {7*len(nmc_list)*seeds*3*n_mdp} fits (on-policy regenerates its own data → heaviest). "
+               f"Python is much slower than the JS standalone (browser JIT), so large `seeds` is heavy. "
+               f"Re-press to recompute.")
     if st.button("▶ Run training", type="primary"):
         st.session_state["_prog"] = st.progress(0.0, text="starting…")
         agg, pols, curves = nmc_run(peak, eps, depth, npairs, steps, seeds, batch, nmc_list, n_mdp)
@@ -340,14 +353,36 @@ flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissi
     if "run" in st.session_state:
         agg, pols, curves, nmc_list = st.session_state["run"]
         rew = rewards_for(depth); al = calib(peak, eps, depth)
+
+        # ── downloadable results: settings + per-regime Δπ mean/std + recovered policies (JSON) ──
+        import json as _json
+        _export = {
+            "meta": {"peak": peak, "eps": eps, "depth": depth, "npairs": npairs, "steps": steps,
+                     "seeds": seeds, "batch": batch, "n_mdp": n_mdp, "gamma": GAMMA, "nmc_list": nmc_list,
+                     "alphas": {rk: float(al[rk]) for rk in REGKEYS}},
+            "labels": {rk: SHORT[rk] for rk in REGKEYS},
+            "regimes": {"off_on": "off-on-policy (Dyna): resample n_mc a'~pi(.|s') at off-policy states",
+                        "off": "off-policy: single logged a' (n_mc ignored)",
+                        "on": "on-policy: lagged sampler rolls out trajectories; stored n_mc actions for C"},
+            "gap": {key: {rk: {str(nm): {"mean": float(agg[key][rk][nm][0]),
+                                         "std": float(agg[key][rk][nm][1])} for nm in nmc_list}
+                          for rk in REGKEYS} for key in REGIMES},
+            "policy_mdp0_seed0": {key: {rk: {str(nm): np.asarray(pols[key][rk][nm]).tolist()
+                                             for nm in nmc_list} for rk in REGKEYS} for key in REGIMES},
+        }
+        st.download_button(
+            "⬇ Download results (JSON)", _json.dumps(_export, indent=1),
+            file_name=f"admissibility_peak{peak}_eps{eps}_b{batch}_L{depth}.json",
+            mime="application/json",
+            help="Settings, per-regime Δπ mean/std over the n_mc sweep, and the recovered π_θ "
+                 "(MDP 0, seed 0) for all three regimes.")
         view = st.radio("gap view", ["grouped bars", "lines"], horizontal=True,
                         help="Grouped bars = n_mc on the x-axis, one coloured bar per Ω in each "
                              "group, error bars = ±seed std. Lines = the same data as Δπ-vs-n_mc curves.")
         if view == "grouped bars":
-            fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), sharey=True)
+            fig, axes = plt.subplots(1, 3, figsize=(16, 4.4), sharey=True)
             x = np.arange(len(nmc_list)); w = 0.8 / len(REGKEYS)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
-                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
+            for ax, key in zip(axes, REGIMES):
                 for j, rk in enumerate(REGKEYS):
                     mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
                     sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
@@ -355,38 +390,36 @@ flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissi
                            color=COLORS[rk], label=REG[rk].label,
                            error_kw=dict(lw=0.7, alpha=0.6))
                 ax.set_xticks(x); ax.set_xticklabels(nmc_list, fontsize=8)
-                ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2, axis="y")
+                ax.set_xlabel("n_mc"); ax.set_title(REGIME_TITLE[key], fontsize=10); ax.grid(alpha=0.2, axis="y")
             axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)")
-            axes[1].legend(fontsize=7, ncol=2)
+            axes[-1].legend(fontsize=7, ncol=2)
             fig.suptitle("n_mc sweep — final policy gap (± seed std)", fontsize=11)
             fig.tight_layout(); show(fig)
         else:
-            fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
-                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
+            fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), sharey=True)
+            for ax, key in zip(axes, REGIMES):
                 for rk in REGKEYS:
                     mu = np.array([agg[key][rk][nm][0] for nm in nmc_list])
                     sd = np.array([agg[key][rk][nm][1] for nm in nmc_list])
                     ax.plot(nmc_list, mu, color=COLORS[rk], marker="o", ms=4, label=REG[rk].label, **kl_kw(rk, 1.7))
                     ax.fill_between(nmc_list, mu - sd, mu + sd, color=COLORS[rk], alpha=0.12)
                 ax.set_xscale("log", base=2); ax.set_xticks(nmc_list); ax.set_xticklabels(nmc_list, fontsize=8)
-                ax.set_xlabel("n_mc"); ax.set_title(ttl); ax.grid(alpha=0.2)
-            axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[1].legend(fontsize=7, ncol=2)
+                ax.set_xlabel("n_mc"); ax.set_title(REGIME_TITLE[key], fontsize=10); ax.grid(alpha=0.2)
+            axes[0].set_ylabel(r"$\Delta_\pi$ (mean TV over states)"); axes[-1].legend(fontsize=7, ncol=2)
             fig.tight_layout(); show(fig)
         st.markdown("**Policy recovery from this run** — π* (dashed) vs π_θ (solid). Pick the budget:")
         nm_sel = st.select_slider("n_mc for the recovery panels", nmc_list, value=nmc_list[0])
-        rc1, rc2 = st.columns(2)
-        rc1.markdown(r"**on-policy inner (resample $n_{mc}$)**"); show(fig_recovery(pols["on"], nm_sel, al, rew, "on-policy"), rc1)
-        rc2.markdown(r"**off-policy inner (logged $a'$)**"); show(fig_recovery(pols["off"], nm_sel, al, rew, "off-policy"), rc2)
-        with st.expander("training curves (gap vs SGD step) at the selected n_mc — on AND off-policy"):
-            fig, axes = plt.subplots(1, 2, figsize=(12, 3.6), sharey=True)
-            for ax, key, ttl in [(axes[0], "on", r"on-policy inner (resample $n_{mc}$)"),
-                                 (axes[1], "off", r"off-policy inner (logged $a'$, $n_{mc}$ ignored)")]:
+        for col, key in zip(st.columns(3), REGIMES):
+            col.markdown(f"**{REGIME_TITLE[key]}**")
+            show(fig_recovery(pols[key], nm_sel, al, rew, key), col)
+        with st.expander("training curves (gap vs SGD step) at the selected n_mc — all three regimes"):
+            fig, axes = plt.subplots(1, 3, figsize=(16, 3.6), sharey=True)
+            for ax, key in zip(axes, REGIMES):
                 for rk in REGKEYS:
                     cv = curves[key][rk][nm_sel]
                     ax.plot(np.linspace(0, steps, len(cv)), cv, color=COLORS[rk], label=REG[rk].label, **kl_kw(rk, 1.5))
-                ax.set_xlabel("SGD step"); ax.set_title(f"{ttl} · n_mc={nm_sel}"); ax.grid(alpha=0.2)
-            axes[0].set_ylabel("Δπ"); axes[1].legend(fontsize=6.5, ncol=2)
+                ax.set_xlabel("SGD step"); ax.set_title(f"{REGIME_TITLE[key]} · n_mc={nm_sel}", fontsize=9); ax.grid(alpha=0.2)
+            axes[0].set_ylabel("Δπ"); axes[-1].legend(fontsize=6.5, ncol=2)
             fig.tight_layout(); show(fig)
     else:
         st.info("Set n_mc max / MDP draws, then click **Run training** — one run fills the gap curves and the recovery panels.")
@@ -395,13 +428,13 @@ flat in $n_{mc}$ and the clear winner off-policy. This is the off-policy admissi
 # ── ④ α-div morph ──
 with t4:
     st.subheader("α-divergence morph — same α, sweep the parameter a")
-    st.markdown(r"The α-divergence family recovers four of the seven: $a\to 0$ = Reverse-KL, "
-                r"$a=0.5$ = sq. Hellinger, $a\to 1$ = KL, $a=2$ = Pearson $\chi^2$. "
-                r"Colour is a gradient anchored on the KL & RKL palette.")
+    st.markdown(r"The α-divergence family recovers four of the seven: $a\to 0$ = forward KL (FKL), "
+                r"$a=0.5$ = sq. Hellinger, $a\to 1$ = reverse KL (RKL), $a=2$ = Pearson $\chi^2$. "
+                r"Colour is a gradient anchored on the FKL & RKL palette.")
     rew = rewards_for(depth)
     alpha = 0.5
-    specs = [(0.02, "a→0 (RKL)"), (0.25, "a=0.25"), (0.5, "a=0.5 (Hellinger)"), (0.75, "a=0.75"),
-             (0.999, "a→1 (KL)"), (1.5, "a=1.5"), (2.0, "a=2 (χ²)")]
+    specs = [(0.02, "a→0 (FKL)"), (0.25, "a=0.25"), (0.5, "a=0.5 (Hellinger)"), (0.75, "a=0.75"),
+             (0.999, "a→1 (RKL)"), (1.5, "a=1.5"), (2.0, "a=2 (χ²)")]
     cmap = LinearSegmentedColormap.from_list("m", [(0.0, COLORS["rkl"]), (0.5, COLORS["kl"]), (1.0, "#f39c12")])
     fig, ax = plt.subplots(figsize=(11, 4))
     for a, lab in specs:
