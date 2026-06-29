@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .venv/
+
+# superseded first tabular run (3 fixed MDP × 100 seed; replaced by the 100-independent-MDP design A)
+python/data/tabular/run_20260629_140248/
+python/data/tabular/_*/
