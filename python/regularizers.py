@@ -94,16 +94,27 @@ def _adiv_inv(y, a):
     return base ** (1.0 / e)
 
 
-def _adiv_spec(a: float) -> "Spec":
+def _adiv_spec(a: float, kl_norm: bool = False) -> "Spec":
     if a == 0.0 or a == 1.0:
         raise ValueError("α-div parameter a must avoid 0 (=FKL, key 'rkl') and 1 (=RKL, key 'kl'); use those keys directly.")
     e, norm = a - 1.0, a * (a - 1.0)
+    f = lambda t, a=a, n=norm: (t ** a - a * t + a - 1.0) / n
+    fp = lambda t, e=e: (t ** e - 1.0) / e
+    fpp = lambda t, a=a: t ** (a - 2.0)
+    inv = lambda y, a=a: _adiv_inv(y, a)
+    if kl_norm:
+        # Shift the generator by (t−1): this leaves the divergence Ω (and π*) unchanged — an affine
+        # term sums to 0 under Σ_a ref_a(·) — but sets f'(1)=1 so the a→1 limit is the CANONICAL KL
+        # f=t ln t (Φ→1), matching REG['kl'].  Without it the standard α-div normalization has
+        # f'(1)=0, whose a→1 limit is t ln t − t + 1, giving Φ→1−1/u and a SPURIOUS jump in the
+        # inner term at a=1 (Φ is not affine-invariant, though Ω is).  Use for the α-div sweep.
+        f0, fp0, inv0 = f, fp, inv
+        f = lambda t: f0(t) + (t - 1.0)
+        fp = lambda t: fp0(t) + 1.0
+        inv = lambda y: inv0(y - 1.0)
     return Spec(
         "adiv", f"α-div (a={a:g})", "fdiv",
-        f=lambda t, a=a, n=norm: (t ** a - a * t + a - 1.0) / n,
-        fp=lambda t, e=e: (t ** e - 1.0) / e,
-        fpp=lambda t, a=a: t ** (a - 2.0),
-        inv=lambda y, a=a: _adiv_inv(y, a),
+        f=f, fp=fp, fpp=fpp, inv=inv,
         nu_bracket=None,                        # generic expanding bracket handles any a
     )
 
@@ -282,10 +293,13 @@ class Regularizer:
 REG: dict[str, Regularizer] = {k: Regularizer(k, s.label, s) for k, s in _SPECS.items()}
 
 
-def make_adiv(a: float) -> "Regularizer":
+def make_adiv(a: float, kl_norm: bool = False) -> "Regularizer":
     """Build an α-divergence Regularizer for an arbitrary parameter a (a∈(0,1) ⇒ between RKL & FKL).
-    The default REG['adiv'] uses a = DEFAULT_ADIV_A; use this to sweep a (e.g. the morph figure)."""
-    s = _adiv_spec(a)
+    The default REG['adiv'] uses a = DEFAULT_ADIV_A; use this to sweep a (e.g. the morph figure).
+    `kl_norm=True` renormalizes the generator (f'(1)=1) so the a→1 limit is the canonical KL
+    f=t ln t (Φ→1) — required for an α-div sweep whose inner term connects continuously to REG['kl']
+    (the standard normalization makes Φ→1−1/u, a spurious inner-term jump at a=1)."""
+    s = _adiv_spec(a, kl_norm)
     return Regularizer("adiv", s.label, s)
 
 

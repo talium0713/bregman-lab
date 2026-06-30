@@ -161,15 +161,17 @@ def make_dataset_onpolicy(rewards, eps, gamma, rng, n, sampler, n_mc):
 
 
 def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainConfig,
-              eps: float, rng: np.random.Generator, ref=None, occ=None):
+              eps: float, rng: np.random.Generator, ref=None, occ=None, reg=None):
     """Train tabular θ on the preference data; returns (curve, final_gap, policy).
     `ref` is the reference policy π_ref (None=uniform over actions, (NA,) vector, or
     (depth,SN,NA) array) and is respected everywhere Ω / ∇Ω / C_Ω appear.
-    `occ` (depth,SN) weights the TV gap by state-occupancy (paper Eq 20); None ⇒ uniform."""
-    R = REG[reg_key]
+    `occ` (depth,SN) weights the TV gap by state-occupancy (paper Eq 20); None ⇒ uniform.
+    `reg` optionally overrides REG[reg_key] with a custom Regularizer (e.g. make_adiv(a) for the
+    α-divergence parameter sweep); the recovery target π* is then solved with that same reg."""
+    R = reg if reg is not None else REG[reg_key]
     depth = rewards.shape[0]
     ref = resolve_ref(ref, depth)
-    sol = solve_dp(reg_key, rewards, uniform_pis(depth), alpha, cfg.gamma, eps, ref)
+    sol = solve_dp(reg_key, rewards, uniform_pis(depth), alpha, cfg.gamma, eps, ref, reg=reg)
     tgt = sol.pistar                                   # recovery target π*
     W = float(occ.sum()) if occ is not None else (depth * SN)
 
