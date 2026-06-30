@@ -101,6 +101,7 @@
     <div class="legend" id="legend"></div>
 
     <div class="navsec">pages</div>
+    <div class="nav-item" data-target="r12">📐 왜 실험은 Φ 상수를 요구하나 (plug-in)</div>
     <div class="nav-item" data-target="r11">📐 admissibility 조건: C_Ω 상수 vs Φ 상수</div>
     <div class="nav-item" data-target="r10">📐 Tabular 정리 + α-div 정규화 (수식)</div>
     <div class="nav-item" data-target="howto">▶ 실험 돌리는 법</div>
@@ -142,8 +143,58 @@
   <!-- ═══════════ RIGHT: pages ═══════════ -->
   <main class="content">
 
+    <!-- ───── R12: why the EXPERIMENT needs Φ constant (plug-in estimator) ───── -->
+    <section class="page active" id="r12">
+      <h2 class="title">📐 왜 실험은 $\Phi$ 상수를 요구하나 — plug-in 추정기</h2>
+      <div class="pagemeta">r12 · 2026-06-30 · r11 후속 (이론 vs 실험의 간극)</div>
+      <div class="q">질문: 이론상 admissibility는 "$C_\Omega$ 상수"(정규화 불변)인데, <b>실험에서는 $\Phi$가 상수여야만 성능이 좋게</b> 나온다. 왜?</div>
+
+      <h3>한 줄 답</h3>
+      <div class="warn"><b>실험은 $C_\Omega$를 계산해서 상쇄시키는 게 아니라, 로그된 행동 하나로 $\hat C=\Phi(u_{a'})$를 score에 그대로 <i>대입(plug-in)</i>합니다.</b> 이 plug-in이 정확하려면(모든 샘플에서 참 상수와 같으려면) <b>$\Phi$가 상수</b>여야 합니다. "$C_\Omega$ 상수"는 <i>어떤 divergence가</i> admissible인지(불변)를, "$\Phi$ 상수"는 <i>그 추정기가</i> 정확한지(표현 의존)를 말합니다.</div>
+
+      <h3>실험의 inner항은 plug-in</h3>
+      <p>trajectory score의 내부항은 각 전이에서 <b>한 개의 로그 행동</b> $a'_t$로
+        $\;\hat C_t=\Phi(u_{a'_t})$를 쓰고, 선호차는 $d=\text{score}_w-\text{score}_l$입니다.
+        $C_\Omega=\mathbb{E}_{a\sim\pi}[\Phi]$를 <b>해석적으로 알지 못하고</b>(정책·적분 필요) 데이터로 대체하는 게 핵심.</p>
+      <div class="panel">
+      $$\text{표준 KL}(\Phi\equiv k):\quad \hat C_t=k\ \ \forall a' \;\Rightarrow\; \sum_t \hat C_t=(H\!-\!1)k
+        \;\Rightarrow\; \text{winner·loser 동일} \;\Rightarrow\; d\text{에서 상쇄 (정확).}$$
+      $$\Phi\ \text{비상수}:\quad \hat C_t=\Phi(u_{a'_t})\ \text{는 샘플마다 요동} \;\Rightarrow\;
+        \underbrace{\mathbb{E}_{\rm unif}[\Phi]\neq\mathbb{E}_\pi[\Phi]}_{\text{off-policy 편향}}\ +\ \text{큰 분산}
+        \;\Rightarrow\; \text{w/l 비대칭} \;\Rightarrow\; d\ \text{오염.}$$
+      </div>
+
+      <h3>같은 KL, 두 표현 — plug-in의 차이 (뾰족한 $\pi_\theta=[0.8,0.15,0.05]$)</h3>
+      <table>
+        <thead><tr><th>표현</th><th>$\Phi(u)$ at $u{=}[2.4,0.45,0.15]$</th><th>참 $C_\Omega=\mathbb{E}_\pi[\Phi]$</th><th>off 단일샘플 $\mathbb{E}_{\rm unif}[\Phi]$</th><th>$\mathrm{Var}$</th></tr></thead>
+        <tbody>
+          <tr><td>표준 KL ($\Phi=1$)</td><td>$1,\ 1,\ 1$</td><td>$1.000$</td><td>$1.000$ (정확)</td><td>$0$</td></tr>
+          <tr><td>shifted KL ($\Phi=1-\tfrac1u$)</td><td>$0.58,\ -1.22,\ -5.67$</td><td>$0.000$</td><td>$-2.10$ (편향)</td><td>$6.90$</td></tr>
+        </tbody>
+      </table>
+      <p class="note">둘은 <b>같은 divergence</b>(같은 $\pi^\*$, $C_\Omega$ 둘 다 상수)인데, 표준은 모든 로그행동에서 $\hat C=1$로 <b>정확·무분산</b>,
+        shifted는 $\hat C$가 행동마다 $\{0.58,-1.22,-5.67\}$로 요동 → 참값($0$)과 무관하게 <b>편향 $-2.1$·분산 $6.9$</b>.
+        이 잡음이 winner/loser 비대칭으로 $d$에 들어가 <b>잘못된 정책으로 수렴</b> → 성능 악화.</p>
+
+      <h3>두 레벨로 정리</h3>
+      <table>
+        <thead><tr><th></th><th>$C_\Omega$ 상수</th><th>$\Phi$ 상수</th></tr></thead>
+        <tbody>
+          <tr><td>무엇을 말하나</td><td>어떤 <b>divergence</b>가 admissible</td><td>그 divergence의 <b>plug-in 추정기</b>가 정확</td></tr>
+          <tr><td>정규화</td><td>불변 (invariant)</td><td>표현 의존 ($\mu=0$ 대표원)</td></tr>
+          <tr><td>고르는 것</td><td>reverse-KL (유일)</td><td>reverse-KL의 canonical 표현</td></tr>
+        </tbody>
+      </table>
+      <div class="warn"><b>연결:</b> reverse-KL은 <b>$\Phi$-상수 표현을 가질 수 있는 유일한 divergence</b>입니다(B3·r11). 그 canonical 표현($f=u\ln u$)을
+        써야 plug-in이 noise-free가 되고, 실험은 <i>추정기의 정확도</i>를 재므로 <b>$\Phi$-상수가 관찰</b>됩니다.
+        같은 divergence라도 비-canonical 표현을 쓰면(plug-in이 noisy) 성능이 나빠집니다 — 이것이 α-div 스윕의 정규화 취약성이었습니다.
+        논문의 7-divergence 비교는 각자 <b>표준(canonical) 생성자</b>(KL=$u\ln u$)를 쓰므로 일관되게 옳습니다.</div>
+      <p class="note">요컨대: "$C_\Omega$ 상수"는 원리(이론), "$\Phi$ 상수"는 그 원리를 <b>로그 데이터 한 샘플로 정확히 실현</b>하는 조건(실험).
+        admissibility의 <i>실험적 이득</i>(noise-free inner term)은 $\Phi$-상수 표현에서만 나옵니다.</p>
+    </section>
+
     <!-- ───── R11: C_Ω-constant vs Φ-constant (normalization Q&A) ───── -->
-    <section class="page active" id="r11">
+    <section class="page" id="r11">
       <h2 class="title">📐 admissibility의 옳은 조건 — $C_\Omega$ 상수 vs $\Phi$ 상수</h2>
       <div class="pagemeta">r11 · 2026-06-30 · B3 후속 질문 (정규화 의존성 해소)</div>
       <div class="q">질문: (1) B3에서 Amari처럼 $f'(1)=0$을 적용해도 되나? (2) $f'(1)=0$이어야 할 이유는? (3) "$C_\Omega$가 상수"가 더 일반적이지 않나 — "$\Phi$가 상수"는 더 strict한 가정 같은데 당위를 어떻게?</div>
