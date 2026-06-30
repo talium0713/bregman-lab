@@ -101,6 +101,7 @@
     <div class="legend" id="legend"></div>
 
     <div class="navsec">pages</div>
+    <div class="nav-item" data-target="r11">📐 admissibility 조건: C_Ω 상수 vs Φ 상수</div>
     <div class="nav-item" data-target="r10">📐 Tabular 정리 + α-div 정규화 (수식)</div>
     <div class="nav-item" data-target="howto">▶ 실험 돌리는 법</div>
     <div class="nav-item" data-target="setup">⚙ DPO 학습 세팅</div>
@@ -141,8 +142,71 @@
   <!-- ═══════════ RIGHT: pages ═══════════ -->
   <main class="content">
 
+    <!-- ───── R11: C_Ω-constant vs Φ-constant (normalization Q&A) ───── -->
+    <section class="page active" id="r11">
+      <h2 class="title">📐 admissibility의 옳은 조건 — $C_\Omega$ 상수 vs $\Phi$ 상수</h2>
+      <div class="pagemeta">r11 · 2026-06-30 · B3 후속 질문 (정규화 의존성 해소)</div>
+      <div class="q">질문: (1) B3에서 Amari처럼 $f'(1)=0$을 적용해도 되나? (2) $f'(1)=0$이어야 할 이유는? (3) "$C_\Omega$가 상수"가 더 일반적이지 않나 — "$\Phi$가 상수"는 더 strict한 가정 같은데 당위를 어떻게?</div>
+
+      <h3>한 줄 답</h3>
+      <div class="warn"><b>"$C_\Omega(\pi)$가 정책에 무관한 상수"가 정규화-불변(invariant)인 <i>옳은</i> admissibility 조건이고, "$\Phi$가 상수"는 그 한 가지(정규화 의존적) 표현입니다.</b> 둘 다 reverse-KL을 유일하게 골라내지만, 전자가 더 약하고 자연스럽습니다.</div>
+
+      <table>
+        <thead><tr><th>divergence</th><th>$\mathrm{std}_\pi[C_\Omega]$</th><th>$\Phi$ 상수?</th></tr></thead>
+        <tbody>
+          <tr><td>KL ($f=u\ln u$, 표준)</td><td>1.5e-16</td><td>✅ $\Phi=1$</td></tr>
+          <tr><td>KL ($f=u\ln u-(u-1)$)</td><td>1.7e-05</td><td>❌ $\Phi=1-1/u$</td></tr>
+          <tr><td>α-div ($a=0.5$)</td><td>0.117</td><td>❌</td></tr>
+          <tr><td>JS / χ²</td><td>0.039 / 0.32</td><td>❌</td></tr>
+        </tbody>
+      </table>
+      <p class="note">같은 KL인데 정규화만 다른 두 표현이 <b>둘 다 $C_\Omega$ 상수</b>(값만 1 vs 0)이고 <b>$\Phi$는 한쪽만 상수</b> — 이것이 전부를 말해줍니다.</p>
+
+      <h3>Q2. $f'(1)=0$의 정체 — 필수가 아니라 convention</h3>
+      <p>f-divergence는 생성자의 affine 이동 $f\to f+c(t-1)$에 <b>불변</b>입니다:
+        $\sum_a\rho_a(u_a-1)=\sum_a\pi_a-\sum_a\rho_a=0$. 이 1-파라미터 자유도에서 대표원 하나를 고르려고
+        흔히 $f(1)=0,\ f'(1)=0$을 씁니다(그러면 $f\ge0$, 최소가 $t=1$인 "예쁜" 볼록함수). Amari α-div가 이 관례를
+        따를 뿐 — <b>다른 affine 대표원을 써도 divergence는 동일</b>합니다. $f'(1)=0$은 <i>요구조건이 아닙니다.</i></p>
+
+      <h3>Q1. B3에 $f'(1)=0$을 넣으면? — 표준 대표원이 나오고 $\Phi$는 비상수</h3>
+      <p>B3의 해 $f(u)=k\,u\ln u+c+A\,u$에 $f(1)=0$은 $A=-c$를 줬습니다. 여기에 $f'(1)=0$을 더 넣으면:</p>
+      <div class="panel">
+      $$f'(u)=k(\ln u+1)-c,\qquad f'(1)=k-c=0\ \Rightarrow\ c=k,$$
+      $$f(u)=k\big(u\ln u-u+1\big),\qquad \Phi(u)=k-\frac{c}{u}=k\Big(1-\frac1u\Big)\ \text{(비상수)}.$$
+      </div>
+      <p>즉 $f'(1)=0$은 정확히 <b>a→1 극한이었던 표준 대표원</b>(Φ 비상수)을 줍니다. 반대로 <b>상수-$\Phi$ 대표원은 $c=0$</b>
+        (즉 $f=k\,u\ln u$, $f'(1)=k\neq0$, $\Phi\equiv k$). 둘은 같은 reverse-KL의 affine 표현 차이일 뿐 —
+        <b>적용해도 되지만 그러면 $\Phi$가 상수가 아니게 됩니다.</b></p>
+
+      <h3>Q3. 왜 $\Phi$ 상수가 아니라 $C_\Omega$ 상수가 옳은가</h3>
+      <p>내부항 $C_\Omega(\pi)=\sum_a \pi_a\,\Phi(u_a),\ u_a=\pi_a/\rho_a$. 단체(simplex) 위에서
+        $C_\Omega$가 <b>모든 $\pi$에 대해 상수</b>일 조건은 모든 좌표 편미분이 같아야 함:</p>
+      <div class="panel">
+      $$\frac{\partial C_\Omega}{\partial \pi_j}=\Phi(u_j)+u_j\,\Phi'(u_j)=\frac{d}{du}\big[u\,\Phi(u)\big]\Big|_{u_j}=\lambda
+        \;\Longrightarrow\; u\,\Phi(u)=\lambda u+\mu \;\Longrightarrow\; \boxed{\;\Phi(u)=\lambda+\frac{\mu}{u}\;}.$$
+      </div>
+      <p>그리고 $\Phi=\lambda+\mu/u$를 ODE로 풀면(B3와 동일) <b>divergence $=\lambda\,u\ln u$ = (배율) reverse-KL, 유일</b>입니다.</p>
+      <div class="warn"><b>왜 invariant인가:</b> affine 이동은 $\Phi\to\Phi+c/u$ → $\lambda+\mu/u$ 형태를 보존($\mu\to\mu+c$).
+        그래서 <b>"$C_\Omega$ 상수"는 정규화 무관</b>(위 표: 두 KL 표현 모두 std≈0). 반면 <b>"$\Phi$ 상수"는 $\mu=0$인
+        특정 대표원에서만</b> 성립 → 정규화 의존. 둘은 같은 divergence를 고르지만 $C_\Omega$-상수가 더 약하고 invariant한 <i>옳은</i> 조건.</div>
+
+      <h3>당위 — 왜 그것이 admissibility인가 (상쇄 메커니즘)</h3>
+      <p>$C_\Omega(\pi(\cdot|s'))$가 <i>정책무관 상수</i>이면 trajectory score의 inner 합이
+        $\sum_t C_\Omega(s_{t+1})=(H-1)\cdot\text{const}$ — 같은 길이의 winner·loser에서 동일하므로
+        <b>선호차 $d=\text{score}_w-\text{score}_l$에서 상쇄</b>됩니다. 즉 <b>추정이 아예 필요 없고</b> 데이터 정책과
+        무관하게 off-policy-정확. $\Phi$의 단일샘플 추정기 $\hat C=\Phi(u_{a'})$는 이 상수를 "추정"하는 한 방법일 뿐이고,
+        $\mu\neq0$ 표현에선 $\mathbb{E}_{\text{behave}}[\Phi]\neq\mathbb{E}_\pi[\Phi]$로 편향 — 그래서 α-div 스윕이
+        정규화에 취약했던 것입니다.</p>
+
+      <h3>함의 (코드·논문)</h3>
+      <p>현재 <code>is_admissible</code>은 $\mathrm{Var}_a[\Phi]=0$($\Phi$ 상수, <b>정규화 의존</b>)을 봅니다.
+        <b>invariant 판정은 $\mathrm{std}_\pi[C_\Omega]=0$</b>(동치: $\Phi(u)=\lambda+\mu/u$)로 두는 게 옳습니다 —
+        KL을 어떤 정규화로 적든 일관 admissible로 판정되고, α-div 스윕도 <b>$\mathrm{std}_\pi[C_\Omega]$ vs $a$</b>로 그리면
+        정규화 무관하게 깨끗한 곡선($a\neq1$에서 진짜 non-zero)이 됩니다.</p>
+    </section>
+
     <!-- ───── R10: tabular reproducible runs + α-div normalization math ───── -->
-    <section class="page active" id="r10">
+    <section class="page" id="r10">
       <h2 class="title">📐 Tabular 재현 실험 정리 + α-div 정규화 분석</h2>
       <div class="pagemeta">r10 · 2026-06-30 · 재현 파이프라인(<code>seeds.py</code>, <code>run_tabular.py</code>, <code>run_adiv.py</code>)</div>
       <div class="q">질문: (1) <span class="math">t−1</span>이 모든 <span class="math">a</span>에 일관되게 더해지는 이유 — 일반적으로 <span class="math">c(t−1)</span>일 텐데 왜 <span class="math">c=1</span>로 귀결되나? (2) α-div가 아닌 divergence에 대해선 같은 효과를 일반적으로 어떻게 만드나?</div>
