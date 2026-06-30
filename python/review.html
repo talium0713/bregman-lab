@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Off-policy admissibility — Python port · 작업 리뷰</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <style>
   :root{
     --bg:#17141f; --panel:#1f1b29; --panel2:#262130; --ink:#ece7df; --faint:#9b93a8;
@@ -98,6 +101,7 @@
     <div class="legend" id="legend"></div>
 
     <div class="navsec">pages</div>
+    <div class="nav-item" data-target="r10">📐 Tabular 정리 + α-div 정규화 (수식)</div>
     <div class="nav-item" data-target="howto">▶ 실험 돌리는 법</div>
     <div class="nav-item" data-target="setup">⚙ DPO 학습 세팅</div>
     <div class="nav-item" data-target="live">📊 라이브 결과 (Part 3)</div>
@@ -136,6 +140,99 @@
 
   <!-- ═══════════ RIGHT: pages ═══════════ -->
   <main class="content">
+
+    <!-- ───── R10: tabular reproducible runs + α-div normalization math ───── -->
+    <section class="page active" id="r10">
+      <h2 class="title">📐 Tabular 재현 실험 정리 + α-div 정규화 분석</h2>
+      <div class="pagemeta">r10 · 2026-06-30 · 재현 파이프라인(<code>seeds.py</code>, <code>run_tabular.py</code>, <code>run_adiv.py</code>)</div>
+      <div class="q">질문: (1) <span class="math">t−1</span>이 모든 <span class="math">a</span>에 일관되게 더해지는 이유 — 일반적으로 <span class="math">c(t−1)</span>일 텐데 왜 <span class="math">c=1</span>로 귀결되나? (2) α-div가 아닌 divergence에 대해선 같은 효과를 일반적으로 어떻게 만드나?</div>
+
+      <h3>A. 지금까지 한 것 (재현 파이프라인 + 결과)</h3>
+      <p><b>재현성 우선</b>: 기존 <code>run_part3.py</code>는 전역 RNG 하나라 셀이 순서 의존·재현 불가였습니다.
+        <code>seeds.rng_for(root, role, *key)</code>로 <b>난수 단위마다 독립 스트림</b>을 유도(<code>ROOT_SEED=20260629</code>) →
+        셀 단독 재현·순서 무관. 설계는 <b>100개 독립 MDP × 1 학습</b>(design A): 각 seed가 i.i.d. 표본이라 평균±CI가 정직.</p>
+      <table>
+        <thead><tr><th>실험</th><th>축</th><th>핵심 결과</th></tr></thead>
+        <tbody>
+          <tr><td>헤드라인 §4.3</td><td>regime × Ω × n_mc</td><td>off: KL 0.14 vs 나머지 0.37–0.44; off_on/on: KL 평탄, 비-KL은 n_mc↑로 수렴</td></tr>
+          <tr><td>peak ablation</td><td>peak ∈ {0.6,0.7,0.8}</td><td>KL이 모든 peak 최저; 분리폭 peak와 함께 ↑</td></tr>
+          <tr><td>ε ablation</td><td>ε ∈ {0…0.5}, α 고정</td><td>KL이 모든 ε에서 평탄·최저 (전이노이즈 무관)</td></tr>
+          <tr><td>seed 수</td><td>n=10 vs 100</td><td>CI ∝ 1/√n; 분리는 n=10에서도, 평탄성(null)은 ~100 필요</td></tr>
+          <tr><td>§4.2 메커니즘</td><td>n_mc, horizon H</td><td>Φ<sub>KL</sub>≡1 ⇒ std 정확히 0; 비-KL은 single-state ∝1/√n, traj ∝√(H−1)</td></tr>
+          <tr><td>α-div 스윕</td><td>파라미터 a</td><td>아래 — <b>정규화 이슈</b> 발견</td></tr>
+        </tbody>
+      </table>
+
+      <h3>B. 셋업과 기호</h3>
+      <p>참조정책 <span class="math">ρ=π<sub>ref</sub></span>, <span class="math">u<sub>a</sub>=π<sub>a</sub>/ρ<sub>a</sub></span>.
+        f-divergence와 그 내부항(inner term):</p>
+      <div class="panel">
+      $$\Omega(\pi;\rho)=\sum_a \rho_a\, f(u_a),\qquad
+        \Phi(u)=f'(u)-\frac{f(u)}{u},\qquad
+        C_\Omega(\pi)=\mathbb{E}_{a\sim\pi}\!\big[\Phi(u_a)\big].$$
+      </div>
+      <p>off-policy 추정기는 행동정책에서 뽑힌 단일 logged <span class="math">a′</span>로 $\hat C=\Phi(u_{a'})$를 씁니다.
+        이게 <b>편향 없으려면 모든 <span class="math">π</span>·행동정책에 대해 <span class="math">Φ</span>가 상수</b>여야 합니다(그래야 $\mathbb{E}_{\text{behave}}[\Phi]=\mathbb{E}_\pi[\Phi]=\text{const}$). 이것이 <b>admissibility ⇔ Φ 상수</b>.</p>
+
+      <h3>B1. f-divergence의 affine 자유도 — Ω는 불변, Φ는 변한다</h3>
+      <p>임의의 상수 <span class="math">c</span>에 대해 $\tilde f(t)=f(t)+c(t-1)$로 바꿔도 <b>divergence는 그대로</b>입니다:</p>
+      <div class="panel">
+      $$\tilde\Omega=\sum_a\rho_a\big[f(u_a)+c(u_a-1)\big]
+        =\Omega+c\Big(\underbrace{\textstyle\sum_a\pi_a}_{=1}-\underbrace{\textstyle\sum_a\rho_a}_{=1}\Big)=\Omega.$$
+      </div>
+      <p>따라서 <span class="math">Ω</span>·최적정책 $\pi^\star$·Bregman gap은 affine 항에 <b>완전히 불변</b>입니다.
+        그런데 inner 적분항 <span class="math">Φ</span>는 다릅니다:</p>
+      <div class="panel">
+      $$\tilde\Phi(u)=\tilde f'(u)-\frac{\tilde f(u)}{u}
+        =\big[f'(u)+c\big]-\frac{f(u)+c(u-1)}{u}
+        =\Phi(u)+c-\frac{c(u-1)}{u}=\boxed{\;\Phi(u)+\dfrac{c}{u}\;}.$$
+      </div>
+      <p>즉 affine 이동은 <span class="math">Φ</span>를 <b><span class="math">+c/u</span>만큼</b> (u-의존적으로) 옮깁니다. 참고로 참 inner항은 상수만큼 이동:
+        $\;C_{\tilde\Omega}=\mathbb{E}_\pi[\Phi+c/u]=C_\Omega+c\sum_a\pi_a\frac{\rho_a}{\pi_a}=C_\Omega+c$
+        (그래서 동일 깊이 trajectory의 선호차 <span class="math">d</span>에선 상쇄 — 참 결과는 정규화 무관, <b>off-policy 단일샘플 추정기만 <span class="math">c/u</span> 때문에 정규화에 민감</b>).</p>
+
+      <h3>B2. 왜 <span class="math">c=1</span>인가</h3>
+      <p>Amari α-divergence의 <b>표준</b> 생성자는 <span class="math">f_a(1)=f_a'(1)=0</span>으로 정규화됩니다:</p>
+      <div class="panel">
+      $$f_a(t)=\frac{t^{a}-a\,t+a-1}{a(a-1)},\qquad
+        \lim_{a\to1}f_a(t)\;\overset{\text{L'Hôpital}}{=}\;t\ln t-t+1.$$
+      </div>
+      <p>반면 <b>canonical KL</b>(우리가 admissible이라 부르는 것)은 $f_{\rm KL}(t)=t\ln t$ ($f_{\rm KL}'(1)=1$, $\Phi_{\rm KL}\equiv 1$). 둘의 차이는</p>
+      <div class="panel">
+      $$\lim_{a\to1}f_a(t)-f_{\rm KL}(t)=(t\ln t-t+1)-t\ln t=-(t-1).$$
+      </div>
+      <p>그래서 canonical KL을 회복하려면 <span class="math">+(t-1)</span>, 즉 <b><span class="math">c=1</span></b>을 더해야 합니다.
+        <b><span class="math">c</span>가 <span class="math">a</span>에 무관하게 1인 이유</b>: 표준 α-div 군은 <b>모든 <span class="math">a</span>에서 균일하게 <span class="math">f_a'(1)=0</span></b>이고, 우리는 정규화 규약을 $\tilde f'(1)=1$로 못박습니다. $\tilde f'(1)=f_a'(1)+c=0+c$이므로 <span class="math">c=1</span> — 군 전체에 같은 상수.</p>
+      <div class="warn"><b>왜 하필 <span class="math">f'(1)=1</span>?</b> — admissibility(상수 <span class="math">Φ</span>) 조건이 그 정규화를 고릅니다.
+        $\Phi(u)=f'(u)-f(u)/u=k$(상수)는 1계 선형 ODE <span class="math">u f'-f=ku</span>이고, 일반해는
+        $f(u)=k\,u\ln u+A\,u$. <span class="math">f(1)=0</span>이면 <span class="math">A=0</span> ⇒ $f=k\,u\ln u$(=배율 곱한 KL), 그리고 <span class="math">f'(1)=k=Φ</span>.
+        즉 <b>상수-Φ 대표원은 유일</b>하게 $u\ln u$(배율 제외)이며 <span class="math">Φ=1</span>은 <span class="math">f'(1)=1</span>을 뜻합니다. 표준 α-div의 a→1 극한 $t\ln t-t+1$은 <b>같은 divergence의 다른 affine 대표원</b>(<span class="math">Φ=1-1/u</span>, 비상수)이라 <span class="math">c=1</span>로 옮겨야 admissible 대표원에 닿습니다.</div>
+
+      <h3>B3. α-div가 아닌 divergence — 일반적으로 가능한가?</h3>
+      <p>affine 재정규화로 <b>어떤 divergence를 admissible(상수 Φ)로 만들 수 있나?</b> 조건은
+        $\Phi(u)+c/u=k$, 즉 $\Phi(u)=k-c/u$ 형태여야 합니다. 이를 만족하는 생성자를 ODE로 풀면
+        (<span class="math">u f'-f=ku-c</span>):</p>
+      <div class="panel">
+      $$f(u)=k\,u\ln u+c+A\,u\;\overset{f(1)=0}{\Longrightarrow}\;A=-c,\qquad
+        f(u)=k\,u\ln u-\,c\,(u-1).$$
+      </div>
+      <p><span class="math">-c(u-1)</span>은 affine 항(divergence 무관)이므로 <b>그 divergence는 $k\,u\ln u$ = 배율 곱한 reverse-KL</b>입니다. 결론:</p>
+      <div class="warn"><b>divergence를 affine 재정규화로 admissible하게 만들 수 있다 ⇔ 그것이 (배율 제외) reverse-KL이다.</b>
+        forward-KL · JS · Hellinger · χ² · Euclidean은 <b>어떤 affine 이동으로도 Φ가 상수가 되지 않습니다</b>(상수-Φ는 reverse-KL만의 성질).
+        α-div 군이 특별한 건 <b>a=1에서 reverse-KL을 지나기</b> 때문이고, 거기서만 <span class="math">c=1</span> 재정규화가 admissibility를 회복시킵니다.
+        그래서 "비-KL을 일반적으로 admissible로 만드는 방법"은 <b>존재하지 않으며</b> — 이것이 바로 논문의 <b>KL 유일성</b>입니다.</div>
+
+      <h3>B4. 함의 — α-div 스윕은 정규화 의존적</h3>
+      <p>수정 전(표준 <span class="math">f'(1)=0</span>)은 a=1에서만 급락하는 <b>가짜 knife-edge</b>를, 수정 후(<span class="math">f'(1)=1</span>, <code>kl_norm</code>)는 부드러운 well을 줍니다.
+        <b>둘 다 Ω·π^\*는 동일</b>하고 inner-term 추정기만 다릅니다.</p>
+      <figure>
+        <img src="figs/adiv_compare_p80.png" alt="adiv normalization before/after">
+        <figcaption>α-div 스윕 수정 전/후 (off-policy, α=RKL@peak0.8, 100 MDP). 빨강=표준(가짜 knife-edge), 파랑=kl_norm(부드러운 well). a=1(분홍)은 공유.</figcaption>
+      </figure>
+      <p>다만 <span class="math">Φ</span>(따라서 off-policy bias·"admissibility")가 <b>생성자 정규화에 의존</b>하므로, α-div <i>파라미터</i> 스윕의 모양은 규약 선택의 산물입니다.
+        <b>규약 무관하게 깨끗한 admissibility 주장은 7-divergence 헤드라인 + §4.2 메커니즘</b>(각 divergence 표준형, reverse-KL만 상수-Φ)에 두는 것을 권합니다.
+        구현: <code>regularizers.make_adiv(a, kl_norm=True)</code>가 <span class="math">+(t-1)</span> 이동을, <code>train_one(reg=…)</code>가 커스텀 regularizer 학습을 담당.</p>
+    </section>
 
     <!-- ───── HOW TO RUN ───── -->
     <section class="page" id="howto">
@@ -210,7 +307,7 @@ python verify.py           # 7개 수치 검증 (전부 PASS여야 함)</pre>
     </section>
 
     <!-- ───── LIVE RESULTS ───── -->
-    <section class="page active" id="live">
+    <section class="page" id="live">
       <h2 class="title">📊 라이브 결과 — Part 3 (Off-Policy Admissibility)</h2>
       <div class="pagemeta" id="run-meta"></div>
       <div id="live-body">결과 파일이 없습니다 — <code>python run_part3.py</code>를 먼저 실행하세요.</div>
@@ -528,6 +625,15 @@ if(window.RESULTS && window.RESULTS.meta){
     b.classList.add("active"); renderPeak(b.dataset.peak);
   }));
 })();
+
+// KaTeX: render $…$ / $$…$$ across the page (CDN-loaded in <head>)
+function _renderMath(){
+  if(window.renderMathInElement) renderMathInElement(document.body,{
+    delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false}],
+    throwOnError:false});
+}
+if(document.readyState!=="loading") _renderMath(); else document.addEventListener("DOMContentLoaded",_renderMath);
+window.addEventListener("load",_renderMath);
 </script>
 </body>
 </html>
