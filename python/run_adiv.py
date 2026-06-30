@@ -86,11 +86,13 @@ def main():
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     ap.add_argument("--root", type=int, default=ROOT_SEED)
     ap.add_argument("--peak-ref", type=float, default=0.8, help="pin α to RKL's calibration at this peak")
-    ap.add_argument("--no-kl-norm", dest="kl_norm", action="store_false",
-                    help="use the STANDARD α-div normalization (f'(1)=0) — reproduces the a=1 artifact")
+    # PAPER BASELINE = standard α-div normalization (f'(1)=0; (t−1) NOT added). --kl-norm switches to
+    # the KL-consistent normalization (f'(1)=1) used only for the before/after diagnostic.
+    ap.add_argument("--kl-norm", dest="kl_norm", action="store_true",
+                    help="KL-consistent normalization (f'(1)=1); default is standard (paper baseline)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
-    suffix = "" if args.kl_norm else "_std"
+    suffix = "_kln" if args.kl_norm else ""
     out = args.out or f"data/tabular/run_adiv_p{int(round(args.peak_ref * 100))}{suffix}"
     os.makedirs(out, exist_ok=True)
     blocks = [dict(mi=mi, root=args.root, n_seeds=args.n_seeds, peak_ref=args.peak_ref,

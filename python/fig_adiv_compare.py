@@ -23,8 +23,8 @@ import matplotlib.pyplot as plt
 
 from regularizers import COLORS
 
-KLN = "data/tabular/run_adiv_p80/results.json"        # KL-consistent (the fix)
-STD = "data/tabular/run_adiv_p80_std/results.json"    # standard normalization (the artifact)
+KLN = "data/tabular/run_adiv_p80_kln/results.json"    # KL-consistent (the diagnostic)
+STD = "data/tabular/run_adiv_p80/results.json"        # standard normalization (PAPER BASELINE)
 
 
 def agg(path):

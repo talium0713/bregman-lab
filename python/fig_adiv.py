@@ -84,10 +84,12 @@ def fig_curve(man, agg, a_grid):
         axin.tick_params(labelsize=6.5); axin.grid(alpha=0.2)
         ax.indicate_inset_zoom(axin, edgecolor="#bbb")
 
-    ax.set_title(f"α-div sweep at fixed temperature α=RKL@peak{man['peak_ref']}\n"
+    norm = "KL-consistent f'(1)=1" if man.get("kl_norm") else "standard f'(1)=0 (paper baseline)"
+    ax.set_title(f"α-div sweep at fixed temperature α=RKL@peak{man['peak_ref']}  ·  {norm}\n"
                  f"{man['n_mdp']} MDPs · off-policy · ±95% CI", fontsize=10)
     fig.tight_layout()
-    p = f"figs/adiv_curve_p{int(round(man['peak_ref']*100))}.png"; fig.savefig(p, dpi=140); plt.close()
+    sfx = "_kln" if man.get("kl_norm") else ""
+    p = f"figs/adiv_curve_p{int(round(man['peak_ref']*100))}{sfx}.png"; fig.savefig(p, dpi=140); plt.close()
     return p
 
 
@@ -116,7 +118,8 @@ def fig_morph(man, results, agg):
     fig.suptitle(f"α-div morph at fixed α=RKL@peak{man['peak_ref']} (MDP 0): only a=1 (KL) recovers "
                  "its target off-policy; the others leave π_θ far from π*", fontsize=10.5, y=1.02)
     fig.tight_layout()
-    p = f"figs/adiv_morph_p{int(round(man['peak_ref']*100))}.png"
+    sfx = "_kln" if man.get("kl_norm") else ""
+    p = f"figs/adiv_morph_p{int(round(man['peak_ref']*100))}{sfx}.png"
     fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
     return p
 
