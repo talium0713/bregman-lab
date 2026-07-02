@@ -63,12 +63,15 @@ def fig_curve(man, agg, a_grid):
     ax.scatter([1.0], [agg[1.0]["mean"]], s=180, facecolors="none", edgecolors=COLORS["kl"],
                linewidths=2.2, zorder=5)
     ax.axvline(1.0, color=COLORS["kl"], ls="--", lw=1.0, alpha=0.6)
+    # annotation placed in AXES-fraction coords so it stays inside the plot regardless of the
+    # y-range (the kln case has a small range where a data-coord offset floated off the top).
     ax.annotate("a=1: RKL\n(admissible)", xy=(1.0, agg[1.0]["mean"]),
-                xytext=(0.28, agg[1.0]["mean"] + 0.13), fontsize=8.5, color=COLORS["kl"],
+                xytext=(0.30, 0.48), textcoords="axes fraction", fontsize=8.5, color=COLORS["kl"],
                 ha="center", arrowprops=dict(arrowstyle="->", color=COLORS["kl"], lw=1.0))
     ax.set_xlabel("α-divergence parameter  a   (a→0 FKL · a=1 RKL · a=2 χ²)")
     ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")
-    ax.set_ylim(0, max(mu + ci) * 1.15); ax.grid(alpha=0.2)
+    # snug top so the data max sits at a fixed near-top position (not floating mid-plot)
+    ax.set_ylim(0, max(mu + ci) * 1.06); ax.grid(alpha=0.2)
 
     # zoom inset resolving the well around a=1 (the dense grid lives here)
     m = (A >= 0.84) & (A <= 1.16)
