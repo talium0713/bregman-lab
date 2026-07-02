@@ -271,6 +271,7 @@ def main():
     ap.add_argument("--n-mdp", type=int, default=None)
     ap.add_argument("--n-seeds", type=int, default=None)
     ap.add_argument("--steps", type=int, default=None)
+    ap.add_argument("--depth", type=int, default=None, help="horizon H (layers); for the H ablation")
     ap.add_argument("--peaks", type=float, nargs="+", default=None)
     ap.add_argument("--nmc", type=int, nargs="+", default=None)
     ap.add_argument("--regimes", nargs="+", default=None, choices=list(REGIME_IDX))
@@ -292,6 +293,7 @@ def main():
     if args.n_mdp is not None:   rc.n_mdp = args.n_mdp
     if args.n_seeds is not None: rc.n_seeds = args.n_seeds
     if args.steps is not None:   rc.steps = args.steps
+    if args.depth is not None:   rc.depth = args.depth
     if args.peaks is not None:   rc.peaks = tuple(args.peaks)
     if args.nmc is not None:     rc.nmc = tuple(args.nmc)
     if args.regimes is not None: rc.regimes = tuple(args.regimes)
