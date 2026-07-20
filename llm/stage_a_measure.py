@@ -87,23 +87,24 @@ def token_logps(model, ids):
     return logp_tok, logits
 
 
-def make_figure(summary, log_u, out):
-    """(L) per-Ω inner-term noise: std (all tokens) + robust |Φ| 99th-pct.  (R) per-token log-ratio."""
-    d = summary["divergences"]
+def make_figure(summary, log_u, phi, out):
+    """(L) per-token Φ distribution per Ω as a box on a symlog axis — RKL collapses to a single point
+    at Φ=1 (constant ⇒ variance 0), every other Ω spreads over many orders. (R) per-token log-ratio."""
     pol = summary["policy"].split("/")[-1]; rf = summary["ref"].split("/")[-1]
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12.8, 4.9))
-    floor = 1e-4
-    x = np.arange(len(KEYS)); w = 0.4
-    stds = [max(d[k]["phi_std"], floor) for k in KEYS]
-    q99 = [max(d[k].get("phi_abs_q99", floor), floor) for k in KEYS]
-    axL.bar(x - w / 2, stds, w, color=[COLORS[k] for k in KEYS], label="std (all tokens)")
-    axL.bar(x + w / 2, q99, w, color=[COLORS[k] for k in KEYS], alpha=0.4, hatch="//",
-            edgecolor="white", label="|Φ| 99th pct (robust)")
-    axL.set_xticks(x); axL.set_xticklabels([SHORT[k] for k in KEYS])
-    axL.set_yscale("log"); axL.axhline(floor, color="0.6", ls=":", lw=1)
-    axL.set_ylabel(r"single-token inner term  $|\Phi(u_{y_t})|$")
-    axL.set_title(r"off-policy inner-term noise per Ω   (RKL: $\Phi\equiv1\Rightarrow$ std 0)")
-    axL.legend(fontsize=8, framealpha=0.9)
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.9))
+    # left: Φ distribution (box, 1–99% whiskers). symlog shows 0, ±1 and ±10^13 on one axis.
+    data = [np.asarray(phi[k], dtype=float) for k in KEYS]
+    bp = axL.boxplot(data, positions=np.arange(len(KEYS)), widths=0.62, whis=(1, 99),
+                     showfliers=False, patch_artist=True, medianprops=dict(color="black", lw=1.2))
+    for patch, k in zip(bp["boxes"], KEYS):
+        patch.set_facecolor(COLORS[k]); patch.set_alpha(0.85)
+    axL.set_yscale("symlog", linthresh=1.0)
+    axL.axhline(1.0, color="0.45", ls=":", lw=1); axL.axhline(0.0, color="0.75", lw=0.6)
+    axL.text(len(KEYS) - 0.5, 1.0, r" $\Phi=1$", va="bottom", ha="right", fontsize=8, color="0.4")
+    axL.set_xticks(np.arange(len(KEYS))); axL.set_xticklabels([SHORT[k] for k in KEYS])
+    axL.set_ylabel(r"per-token inner term  $\Phi(u_{y_t})$   (symlog)")
+    axL.set_title(r"RKL: $\Phi\equiv1$ (point at 1, var 0)  ·  others spread (1–99%; tail to $\pm10^{17}$)")
+    # right: per-token log-ratio (how off-policy each logged token is)
     lg = (log_u / np.log(10)).astype(float)
     axR.hist(lg, bins=100, color="#4065E9", alpha=0.85)
     axR.set_yscale("log"); axR.axvline(0.0, color="0.5", ls="--", lw=1)
@@ -138,8 +139,11 @@ def main():
     if args.replot:                          # redraw only — instant, no GPU/models/data
         with open(args.replot + ".json") as f:
             summary = json.load(f)
-        log_u = np.load(args.replot + "_raw.npz")["log_u"]
-        make_figure(summary, log_u, args.replot)
+        npz = np.load(args.replot + "_raw.npz")
+        phi = {k: npz[f"phi_{k}"] for k in KEYS if f"phi_{k}" in npz}
+        if len(phi) < len(KEYS):
+            raise SystemExit("this _raw.npz predates the Φ-distribution figure — re-run the measurement once")
+        make_figure(summary, npz["log_u"], phi, args.replot)
         return
 
     from transformers import AutoTokenizer
@@ -182,12 +186,13 @@ def main():
             torch.cuda.empty_cache()
 
     log_u = torch.cat(log_u_all).numpy()
+    phi_cat = {k: torch.cat(phi_all[k]).numpy() for k in KEYS}
     summary = {"ref": args.ref, "policy": args.policy, "data": args.data,
                "n_samples_used": len(log_u_all), "n_tokens": n_tok, "adiv_a": args.adiv_a,
                "log_u_quantiles": {q: float(np.quantile(log_u, q)) for q in (0.001, 0.01, 0.5, 0.99)},
                "min_u": float(np.exp(log_u.min())), "divergences": {}}
     for k in KEYS:
-        phi = torch.cat(phi_all[k]).numpy()
+        phi = phi_cat[k]
         rec = {"phi_mean": float(np.mean(phi)), "phi_std": float(np.std(phi)),
                "phi_abs_q99": float(np.quantile(np.abs(phi), 0.99))}
         if args.exact:
@@ -197,8 +202,9 @@ def main():
     with open(args.out + ".json", "w") as f:
         json.dump(summary, f, indent=2)
     print(json.dumps(summary, indent=2))
-    np.savez_compressed(args.out + "_raw.npz", log_u=log_u)   # raw log-ratios -> re-plot via --replot
-    make_figure(summary, log_u, args.out)
+    np.savez_compressed(args.out + "_raw.npz", log_u=log_u,   # raw arrays -> re-plot via --replot
+                        **{f"phi_{k}": phi_cat[k] for k in KEYS})
+    make_figure(summary, log_u, phi_cat, args.out)
     print("wrote", args.out + ".json / .png / _raw.npz")
 
 
