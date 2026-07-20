@@ -8,7 +8,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # arrow module provides pyarrow — Alliance's wheelhouse ships a dummy pyarrow that refuses to build,
 # so `datasets` (needs pyarrow) fails without this. MUST be loaded before activating the venv.
-module load python/3.12 cuda/12.2 gcc arrow
+module load StdEnv/2023 python/3.11 cuda/12.2 gcc arrow
 
 virtualenv --no-download "$REPO/venv_gpu"
 source "$REPO/venv_gpu/bin/activate"

@@ -8,7 +8,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export HF_HOME="/scratch/$USER/hf_cache"        # /project is full; scratch has TBs (purged when idle)
 mkdir -p "$HF_HOME"
-module load python/3.12 cuda/12.2
+module load StdEnv/2023 python/3.11 cuda/12.2 gcc arrow
 source "$REPO/venv_gpu/bin/activate"
 
 # Stage A pair (1.7B). Add the 4B pair too so the scale check is ready.

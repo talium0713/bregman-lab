@@ -16,7 +16,7 @@ export HF_HOME="/scratch/$USER/hf_cache"   # /project is full; keep the model ca
 export HF_HUB_OFFLINE=1                 # compute node has no internet; use the prefetched cache
 export TOKENIZERS_PARALLELISM=false
 
-module load python/3.12 cuda/12.2 gcc arrow   # arrow provides pyarrow at runtime (datasets needs it)
+module load StdEnv/2023 python/3.11 cuda/12.2 gcc arrow   # arrow provides pyarrow at runtime (datasets needs it)
 source "$REPO/venv_gpu/bin/activate"
 cd "$REPO/llm"
 
