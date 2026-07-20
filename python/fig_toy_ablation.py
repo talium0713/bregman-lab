@@ -60,15 +60,10 @@ def main():
 
     # ---- Left: Φ(u) vs u (the root cause; exact, not toy) ----
     u = np.logspace(-8, 2, 2000)
-    for k in KEYS:
-        phi = np.atleast_1d(REG[k].Phi(u)) * np.ones_like(u)
-        kw = dict(color=COLORS[k], lw=3.2 if k == "kl" else 1.9,
-                  zorder=8 if k == "kl" else 3, label=SHORT[k])
-        if k in ("hel", "chi2"):                     # Hel & χ² share the u→0 asymptote (both Φ≈−1/u,
-            kw.update(marker="D" if k == "chi2" else "o", markevery=185,   # since f(0⁺)=1 for both);
-                      ms=6.5 if k == "chi2" else 4.5, markeredgewidth=1.3,  # markers keep them distinct
-                      markerfacecolor="none" if k == "chi2" else COLORS[k])
-        axL.plot(u, np.abs(phi), **kw)
+    for k in KEYS:                                    # Hel & χ² coincide at small u (both f(0⁺)=1 ⇒
+        phi = np.atleast_1d(REG[k].Phi(u)) * np.ones_like(u)   # Φ≈−1/u); χ²'s green vs Hel's blue keeps
+        axL.plot(u, np.abs(phi), color=COLORS[k], lw=3.2 if k == "kl" else 1.9,   # them apart
+                 zorder=8 if k == "kl" else 3, label=SHORT[k])
     axL.axhline(1.0, color="0.6", ls=":", lw=1, zorder=1)
     axL.set_xscale("log"); axL.set_yscale("log")
     axL.set_xlabel(r"$u = \pi_\theta/\pi_{\mathrm{ref}}$  (small $u$ = off-policy)")
@@ -88,17 +83,12 @@ def main():
         if k == "kl":
             continue
         med, lo, hi = data[k]
-        mk = "D" if k == "chi2" else "o"             # χ² open diamond: its std ≈ Hel's at every |A|
-        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, marker=mk,
-                  ms=6.5 if k == "chi2" else 4, markeredgewidth=1.3 if k == "chi2" else 1.0,
-                  markerfacecolor="none" if k == "chi2" else COLORS[k])
+        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, marker="o", ms=4)
         axRt.fill_between(A_GRID, lo, hi, color=COLORS[k], alpha=0.12)
     axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 1e8)
     # legend lists all 6 (incl. RKL, whose flat line lives in the bottom sub-panel below)
     handles = [Line2D([0], [0], color=COLORS[k], lw=3.0 if k == "kl" else 1.9,
-                      marker="D" if k == "chi2" else "o",
-                      ms=6.5 if k == "chi2" else 4, markeredgewidth=1.3 if k == "chi2" else 1.0,
-                      markerfacecolor="none" if k == "chi2" else COLORS[k], label=SHORT[k]) for k in KEYS]
+                      marker="o", ms=4, label=SHORT[k]) for k in KEYS]
     axRt.legend(handles=handles, ncol=3, fontsize=8, framealpha=0.9, loc="upper left")
     axRt.set_title(r"toy: off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$ vs |A|  (median ± IQR)")
     axRt.text(2.6, 2.4e4, "|A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="center")

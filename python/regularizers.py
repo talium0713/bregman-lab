@@ -157,12 +157,13 @@ _SPECS = {
 
 REGKEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2", "euc"]
 
-# Divergence palette + short labels — identical to the JS suite (src/core/math.js REG table),
-# so every figure/HTML keeps the same colour per Ω.
-# Divergence palette — 7 colors interpolated from the "Matching Gradient" 6-stop palette
-# (#EE008D→#B54BD0→#0672F5→#0086F0→#008CC4→#008B83), pink→teal in REGKEYS order.
+# Divergence palette + short labels — keeps the same colour per Ω across every figure/HTML.
+# Base is the "Matching Gradient" 6-stop palette (#EE008D→#B54BD0→#0672F5→#0086F0→#008CC4→#008B83),
+# pink→teal in REGKEYS order, EXCEPT χ²: Hel and χ² sit adjacent in the blue-teal end and are
+# mathematically near-identical off-policy (both f(0⁺)=1 ⇒ Φ≈−1/u), so χ² is pulled to a distinct
+# green to tell the two coincident curves apart.
 COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
-          "hel": "#0088E1", "chi2": "#008CB9", "euc": "#008B83"}
+          "hel": "#0088E1", "chi2": "#12AE5A", "euc": "#008B83"}
 SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
