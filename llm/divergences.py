@@ -55,17 +55,23 @@ def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
 
 
 def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
-            adiv_a: float = DEFAULT_ADIV_A) -> torch.Tensor:
+            adiv_a: float = DEFAULT_ADIV_A, chunk: int = 256) -> torch.Tensor:
     """Closed-form inner term C_Ω(π_θ(·|s)) = Σ_a π_θ(a)·Φ(u_a), summed over the FULL vocab.
-    log_pi, log_ref: full-vocab log-probs, shape [..., V]. Returns [...] (per position). fp32.
+    log_pi, log_ref: full-vocab log-probs, shape [T, V]. Returns [T] (per position).
     RKL comes out exactly 1 by arithmetic; euc uses its own Bregman form.
-    Reduced in float64 — the heavy-tailed members (χ², FKL) lose accuracy summing in float32."""
-    log_pi = log_pi.double(); log_ref = log_ref.double()
-    pi = torch.exp(log_pi)
-    if key == "euc":                      # <π, π−π_ref> − ½‖π−π_ref‖²
-        pr = torch.exp(log_ref)
-        d = pi - pr
-        return (pi * d).sum(-1) - 0.5 * (d * d).sum(-1)
-    log_u = log_pi - log_ref              # [..., V]
-    phi = phi_from_logu(key, log_u, adiv_a)
-    return (pi * phi).sum(-1)
+
+    Reduced in float64 (the heavy-tailed χ²/FKL lose accuracy in float32) and CHUNKED over the token
+    dim: the fp64 full-vocab temporaries are only ~[chunk, V] (256×152k×8 ≈ 0.3 GB), which bounds
+    peak GPU memory and avoids OOM on long responses / bigger models."""
+    if log_pi.shape[0] == 0:
+        return log_pi.new_zeros(0, dtype=torch.float64)
+    outs = []
+    for i in range(0, log_pi.shape[0], chunk):
+        lp = log_pi[i:i + chunk].double(); lr = log_ref[i:i + chunk].double()
+        pi = torch.exp(lp)
+        if key == "euc":                  # <π, π−π_ref> − ½‖π−π_ref‖²
+            d = pi - torch.exp(lr)
+            outs.append((pi * d).sum(-1) - 0.5 * (d * d).sum(-1))
+        else:
+            outs.append((pi * phi_from_logu(key, lp - lr, adiv_a)).sum(-1))
+    return torch.cat(outs)

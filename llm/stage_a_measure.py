@@ -178,6 +178,8 @@ def main():
                 phi_single = phi_all[k][-1].to(C.device)
                 gap_all[k].append((phi_single - C).cpu())
         n_tok += int(m.sum())
+        if (i + 1) % 50 == 0:               # release cached blocks so varying seq lengths don't fragment
+            torch.cuda.empty_cache()
 
     log_u = torch.cat(log_u_all).numpy()
     summary = {"ref": args.ref, "policy": args.policy, "data": args.data,
