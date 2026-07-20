@@ -1,0 +1,29 @@
+#!/bin/bash
+# OPTIONAL — GPU environment smoke test. UNRELATED to the tabular reproduction
+# (which is CPU-only). Use this only to verify the GPU path — allocation, module
+# load, and a torch wheelhouse install — before the LLM Stage A job.
+# Needs a SEPARATE venv with torch (setup_env.sh here installs only numpy/matplotlib).
+#     sbatch jobs/smoke_gpu.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=gpu_smoke
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=0:10:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+module load python/3.12 cuda/12.2
+# source /path/to/torch-venv/bin/activate   # <-- point at a venv that has torch
+
+echo "=== gpu smoke on $(hostname) | $(date) ==="
+nvidia-smi
+python - <<'PY'
+import torch
+print("torch", torch.__version__, "| cuda_available", torch.cuda.is_available())
+print("device", torch.cuda.get_device_name(0))
+x = torch.randn(4096, 4096, device="cuda")
+print("matmul ok, sum =", float((x @ x).sum()))
+PY
+echo "=== done | $(date) ==="

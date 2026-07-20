@@ -1,0 +1,24 @@
+# Data-generation runs for the Killarney tabular reproduction (one per SLURM array task).
+# Checked in the Notion checklist (2026-07-20); A2 (ε ablation) intentionally excluded.
+# Lines starting with # and blank lines are ignored. `--jobs $SLURM_CPUS_PER_TASK` is
+# appended automatically by 01_data_array.slrm. Figure-only items (M1/M2 mechanism, CI)
+# are NOT here — they are produced in 02_figs.slrm.
+#
+# B. Headline (H1): MC budget x 3 regimes, peak 0.7, 100 MDPs
+python run_tabular.py --n-mdp 100 --n-seeds 1 --peaks 0.7 --nmc 1 2 4 8 16 32 --out data/tabular/run_headline_p70
+# C. A1 peak/sharpness ablation {0.6, 0.8}
+python run_tabular.py --n-mdp 100 --n-seeds 1 --peaks 0.6 0.8 --nmc 1 2 4 8 16 32 --out data/tabular/run_ablation_peaks
+# C. A3 horizon H ablation {2,3,4,5,6}
+python run_tabular.py --n-mdp 100 --n-seeds 1 --depth 2 --out data/tabular/run_H2
+python run_tabular.py --n-mdp 100 --n-seeds 1 --depth 3 --out data/tabular/run_H3
+python run_tabular.py --n-mdp 100 --n-seeds 1 --depth 4 --out data/tabular/run_H4
+python run_tabular.py --n-mdp 100 --n-seeds 1 --depth 5 --out data/tabular/run_H5
+python run_tabular.py --n-mdp 100 --n-seeds 1 --depth 6 --out data/tabular/run_H6
+# D. A4 alpha-div sweep (standard normalization = paper baseline), peaks {0.6,0.7,0.8}
+python run_adiv.py --peak-ref 0.6
+python run_adiv.py --peak-ref 0.7
+python run_adiv.py --peak-ref 0.8
+# D. A4b alpha-div KL-consistent normalization (kln, diagnostic), peaks {0.6,0.7,0.8}
+python run_adiv.py --peak-ref 0.6 --kl-norm
+python run_adiv.py --peak-ref 0.7 --kl-norm
+python run_adiv.py --peak-ref 0.8 --kl-norm
