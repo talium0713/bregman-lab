@@ -14,6 +14,6 @@ source "$REPO/venv_gpu/bin/activate"
 # Models only (no dataset here — that's a JSONL made off-cluster by make_uf_jsonl.py, see README).
 # Stage A pair (1.7B). Add the 4B pair too so the scale check is ready.
 for m in Qwen/Qwen3-1.7B-Base Qwen/Qwen3-1.7B Qwen/Qwen3-4B-Base Qwen/Qwen3-4B; do
-  echo "== $m"; hf download "$m" --exclude "*.pth" "original/*"   # `hf` replaced `huggingface-cli`
+  echo "== $m"; hf download "$m"          # `hf` replaced `huggingface-cli`; full repo (Qwen3 = clean safetensors)
 done
 echo "prefetch done -> HF_HOME=$HF_HOME"
