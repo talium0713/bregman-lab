@@ -17,6 +17,7 @@
 
 set -euo pipefail
 REPO="$SLURM_SUBMIT_DIR/.."          # submitted from killarney/ -> repo root is ..
+export PYTHONUNBUFFERED=1            # stream progress prints to the log live (stdout block-buffers to file)
 
 module load python/3.12
 source "$REPO/venv/bin/activate"

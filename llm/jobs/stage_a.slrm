@@ -15,6 +15,7 @@ REPO="$SLURM_SUBMIT_DIR/.."
 export HF_HOME="/scratch/$USER/hf_cache"   # /project is full; keep the model cache on scratch
 export HF_HUB_OFFLINE=1                 # compute node has no internet; use the prefetched cache
 export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1               # stream prints to the log live (else stdout block-buffers to file)
 
 module load StdEnv/2023 python/3.11 cuda/12.2
 source "$REPO/venv_gpu/bin/activate"
