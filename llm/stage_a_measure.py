@@ -36,7 +36,10 @@ from divergences import KEYS, SHORT, COLORS, phi_from_logu, phi_euc, exact_C, DE
 
 
 def load_model(name):
-    m = AutoModelForCausalLM.from_pretrained(name, torch_dtype=torch.bfloat16)
+    try:                                    # transformers 5.x renamed torch_dtype -> dtype
+        m = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16)
+    except TypeError:
+        m = AutoModelForCausalLM.from_pretrained(name, torch_dtype=torch.bfloat16)
     m.to("cuda").eval()
     for p in m.parameters():
         p.requires_grad_(False)
