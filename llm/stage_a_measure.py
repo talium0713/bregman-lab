@@ -11,10 +11,13 @@ closed form C_Ω and the single-sample-vs-exact gap.
 Off-policy by construction: the response tokens come from the dataset (behaviour), and u compares
 π_θ (instruct) to π_ref (base) — no resampling.
 
-Run (on a compute node, after prefetch):
+Data comes from a local JSONL (no `datasets`/pyarrow on the cluster — Alliance ships a dummy
+pyarrow wheel). Prepare it once on a machine with normal internet via make_uf_jsonl.py, then scp.
+
+Run (on a compute node, after prefetch + scp of the jsonl):
   python stage_a_measure.py --ref Qwen/Qwen3-1.7B-Base --policy Qwen/Qwen3-1.7B \
-      --dataset HuggingFaceH4/ultrafeedback_binarized --split test_prefs \
-      --max-samples 500 --max-len 1024 --exact --out results/stageA_1p7b
+      --data data/uf_test_prefs.jsonl --max-samples 500 --max-len 1024 --exact \
+      --out results/stageA_1p7b
 """
 from __future__ import annotations
 
@@ -28,7 +31,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from datasets import load_dataset
 
 from divergences import KEYS, SHORT, COLORS, phi_from_logu, phi_euc, exact_C, DEFAULT_ADIV_A
 
@@ -74,8 +76,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ref", default="Qwen/Qwen3-1.7B-Base")
     ap.add_argument("--policy", default="Qwen/Qwen3-1.7B")
-    ap.add_argument("--dataset", default="HuggingFaceH4/ultrafeedback_binarized")
-    ap.add_argument("--split", default="test_prefs")
+    ap.add_argument("--data", default="data/uf_test_prefs.jsonl",
+                    help="JSONL, one obj/line with 'chosen': [messages]. Make it with make_uf_jsonl.py.")
     ap.add_argument("--max-samples", type=int, default=500)
     ap.add_argument("--max-len", type=int, default=1024)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
@@ -86,7 +88,8 @@ def main():
 
     tok = AutoTokenizer.from_pretrained(args.policy)
     ref, pol = load_model(args.ref), load_model(args.policy)
-    ds = load_dataset(args.dataset, split=args.split)
+    with open(args.data) as f:
+        ds = [json.loads(line) for line in f if line.strip()]
 
     log_u_all = []
     phi_all = {k: [] for k in KEYS}
@@ -120,7 +123,7 @@ def main():
         n_tok += int(m.sum())
 
     log_u = torch.cat(log_u_all).numpy()
-    summary = {"ref": args.ref, "policy": args.policy, "dataset": args.dataset, "split": args.split,
+    summary = {"ref": args.ref, "policy": args.policy, "data": args.data,
                "n_samples_used": len(log_u_all), "n_tokens": n_tok, "adiv_a": args.adiv_a,
                "log_u_quantiles": {q: float(np.quantile(log_u, q)) for q in (0.001, 0.01, 0.5, 0.99)},
                "min_u": float(np.exp(log_u.min())), "divergences": {}}

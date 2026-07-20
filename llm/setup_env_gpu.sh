@@ -6,9 +6,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# arrow module provides pyarrow — Alliance's wheelhouse ships a dummy pyarrow that refuses to build,
-# so `datasets` (needs pyarrow) fails without this. MUST be loaded before activating the venv.
-module load StdEnv/2023 python/3.11 cuda/12.2 gcc arrow
+module load StdEnv/2023 python/3.11 cuda/12.2
 
 virtualenv --no-download "$REPO/venv_gpu"
 source "$REPO/venv_gpu/bin/activate"
@@ -17,11 +15,11 @@ pip install --no-index --upgrade pip
 # hardware-tuned wheels (numpy is NOT pulled in by torch — install explicitly)
 pip install --no-index torch numpy
 
-python -c "import pyarrow; print('pyarrow', pyarrow.__version__, '(from arrow module)')"
-# HF stack from PyPI (login node has internet); transformers new enough for Qwen3.
-# NOTE: if pip still tries to build pyarrow, the arrow module's pyarrow is older than latest
-# datasets wants — pin datasets to match (e.g. pyarrow<21 -> `datasets<4`).
-pip install "transformers>=4.51" datasets accelerate "trl>=0.12" peft huggingface_hub
+# Stage A needs ONLY torch + transformers (+huggingface_hub for downloads). We deliberately do NOT
+# install `datasets`/`trl` here — they pull pyarrow, which Alliance ships as a build-failing dummy
+# wheel. The dataset is prepared off-cluster as JSONL (make_uf_jsonl.py) and read with plain json.
+# Stage B (training) will need trl/datasets; solve the arrow-module/pyarrow bridge then.
+pip install "transformers>=4.51" accelerate huggingface_hub
 
 pip freeze > "$REPO/llm/requirements.lock.txt"
 echo "gpu venv ready at $REPO/venv_gpu"

@@ -8,18 +8,12 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export HF_HOME="/scratch/$USER/hf_cache"        # /project is full; scratch has TBs (purged when idle)
 mkdir -p "$HF_HOME"
-module load StdEnv/2023 python/3.11 cuda/12.2 gcc arrow
+module load StdEnv/2023 python/3.11 cuda/12.2
 source "$REPO/venv_gpu/bin/activate"
 
+# Models only (no dataset here — that's a JSONL made off-cluster by make_uf_jsonl.py, see README).
 # Stage A pair (1.7B). Add the 4B pair too so the scale check is ready.
 for m in Qwen/Qwen3-1.7B-Base Qwen/Qwen3-1.7B Qwen/Qwen3-4B-Base Qwen/Qwen3-4B; do
   echo "== $m"; huggingface-cli download "$m" --exclude "*.pth" "original/*"
 done
-
-python - <<'PY'
-from datasets import load_dataset
-for sp in ("test_prefs", "train_prefs"):
-    d = load_dataset("HuggingFaceH4/ultrafeedback_binarized", split=sp)
-    print(sp, len(d), "examples cached")
-PY
 echo "prefetch done -> HF_HOME=$HF_HOME"

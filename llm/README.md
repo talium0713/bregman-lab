@@ -20,19 +20,28 @@ for 4B**. It's cheap, it's already a paper figure, and it de-risks Stage B.
 
 ```
 llm/
-  setup_env_gpu.sh     one-time GPU venv (torch wheelhouse + HF stack), login node
-  prefetch.sh          download Qwen3 models + UltraFeedback into HF cache, login node
+  setup_env_gpu.sh     one-time GPU venv (torch wheelhouse + transformers), login node
+  prefetch.sh          download Qwen3 models into HF cache (/scratch), login node
+  make_uf_jsonl.py     dump UltraFeedback -> JSONL — run on your MAC (needs datasets), then scp
   divergences.py       torch Φ(u) for the 7 divergences (port of ../python/regularizers.py)
-  stage_a_measure.py   the measurement → results/<name>.{json,png}
+  stage_a_measure.py   the measurement, reads data/*.jsonl → results/<name>.{json,png}
   jobs/stage_a.slrm    1× L40S, HF_HUB_OFFLINE=1
-  logs/  results/
+  data/  logs/  results/
 ```
 
-Run:
+**Work from `/scratch` on Killarney** (`/project` is a full 5 TB group share; `/scratch/$USER` is your
+own 2 TB). **No `datasets`/pyarrow on the cluster** — Alliance ships a build-failing dummy pyarrow, so
+the dataset is prepared off-cluster as JSONL and read with plain `json`.
+
 ```bash
-cd ~/projects/aip-rudner/$USER/bregman-lab/llm
-bash setup_env_gpu.sh     # 1) venv (login node)
-bash prefetch.sh          # 2) download models+data (login node; compute nodes have no internet)
+# on your MAC (normal pip, no Alliance dummy):
+pip install datasets
+python make_uf_jsonl.py --split test_prefs --max 1000 --out data/uf_test_prefs.jsonl
+scp data/uf_test_prefs.jsonl talium@killarney.alliancecan.ca:/scratch/talium/bregman-lab/llm/data/
+
+# on Killarney (from /scratch/$USER/bregman-lab/llm):
+bash setup_env_gpu.sh     # 1) venv (login node) — torch + transformers only
+bash prefetch.sh          # 2) download Qwen3 models -> /scratch HF cache (login node)
 sbatch jobs/stage_a.slrm  # 3) measure (1× L40S)
 tail -f logs/stageA-*.out
 ```
