@@ -50,7 +50,12 @@ def offpolicy_phi_std(reg_key: str, na: int, seed: int) -> float:
 
 def main():
     os.makedirs(FIGDIR, exist_ok=True)
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12.4, 4.9))
+    fig = plt.figure(figsize=(12.8, 5.2))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1, 1], wspace=0.26)
+    axL = fig.add_subplot(gs[0])
+    gsR = gs[1].subgridspec(2, 1, height_ratios=[5, 1], hspace=0.10)   # broken y-axis
+    axRt = fig.add_subplot(gsR[0])                 # top: non-admissible band (zoomed)
+    axRb = fig.add_subplot(gsR[1], sharex=axRt)    # bottom: RKL ≈ 0
 
     # ---- Left: Φ(u) vs u (the root cause; exact, not toy) ----
     u = np.logspace(-8, 2, 2000)
@@ -66,33 +71,49 @@ def main():
     axL.legend(ncol=2, fontsize=9, framealpha=0.9)
     axL.grid(True, which="both", alpha=0.15)
 
-    # ---- Right: off-policy inner-term noise vs |A| ----
+    # ---- Right (broken y-axis): non-admissible band on top, RKL ≈ 0 on bottom ----
+    data = {}
     for k in KEYS:
         med, lo, hi = [], [], []
         for na in A_GRID:
             vals = np.array([offpolicy_phi_std(k, na, seed=s) for s in range(N_SEEDS)])
             med.append(np.median(vals)); lo.append(np.quantile(vals, .25)); hi.append(np.quantile(vals, .75))
-        med = np.maximum(np.array(med), FLOOR)
-        lo = np.maximum(np.array(lo), FLOOR); hi = np.maximum(np.array(hi), FLOOR)
-        axR.plot(A_GRID, med, color=COLORS[k], lw=3.2 if k == "kl" else 1.8,
-                 marker="o", ms=4, zorder=8 if k == "kl" else 3, label=SHORT[k])
-        if k != "kl":
-            axR.fill_between(A_GRID, lo, hi, color=COLORS[k], alpha=0.12, zorder=2)
-    axR.axhline(FLOOR, color="0.6", ls=":", lw=1)
-    axR.axvline(3, color="0.75", ls="--", lw=1)
-    axR.text(3, FLOOR * 1.4, " tabular |A|=3", fontsize=8, color="0.4", rotation=90, va="bottom")
-    axR.axvline(152000, color="0.75", ls="--", lw=1)
-    axR.text(152000, FLOOR * 1.4, " Qwen2.5 |A|=152k", fontsize=8, color="0.4", rotation=90, va="bottom", ha="right")
-    axR.set_xscale("log"); axR.set_yscale("log")
-    axR.set_xlabel(r"action-set size $|A|$  (= vocab at LLM scale)")
-    axR.set_ylabel(r"off-policy noise  $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$")
-    axR.set_title("toy: single-sample inner-term noise vs |A|  (median ± IQR)")
-    axR.legend(ncol=2, fontsize=9, framealpha=0.9)
-    axR.grid(True, which="both", alpha=0.15)
+        data[k] = (np.array(med), np.array(lo), np.array(hi))
+    for k in KEYS:                                  # top: everyone except RKL, zoomed to their band
+        if k == "kl":
+            continue
+        med, lo, hi = data[k]
+        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, marker="o", ms=4, label=SHORT[k])
+        axRt.fill_between(A_GRID, lo, hi, color=COLORS[k], alpha=0.12)
+    axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 2e7)
+    axRt.grid(True, which="both", alpha=0.15)
+    axRt.legend(ncol=2, fontsize=8, framealpha=0.9, loc="upper left")
+    axRt.set_title(r"toy: off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$ vs |A|  (median ± IQR)")
+    axRt.text(3, 2.5e4, " |A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom")
+    axRt.text(152000, 2.5e4, "|A|=152k (Qwen) ", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="right")
 
-    fig.suptitle("Toy check (π_ref uniform, Gaussian logits): RKL noise-free at every |A|; "
-                 "non-admissible noise grows — magnitude is toy-dependent, Stage A measures reality",
-                 fontsize=10.5, y=1.02)
+    axRb.plot(A_GRID, data["kl"][0], color=COLORS["kl"], lw=3.0, marker="o", ms=4)   # bottom: RKL ≈ 0
+    axRb.axhline(0.0, color="0.6", ls=":", lw=1)
+    axRb.set_xscale("log"); axRb.set_ylim(-6e-16, 6e-16); axRb.set_yticks([0])
+    axRb.text(A_GRID[0] * 1.4, 2.6e-16, r"RKL $\equiv 0$  (machine $\varepsilon\!\approx\!2{\times}10^{-16}$)",
+              fontsize=8, color=COLORS["kl"], va="bottom")
+    for xa in (3, 152000):
+        axRt.axvline(xa, color="0.8", ls="--", lw=1); axRb.axvline(xa, color="0.8", ls="--", lw=1)
+    axRb.grid(True, which="both", axis="x", alpha=0.15)
+    axRb.set_xlabel(r"action-set size $|A|$  (= vocab at LLM scale)")
+
+    # broken-axis diagonal cut marks between the two right panels
+    axRt.spines["bottom"].set_visible(False); axRt.tick_params(bottom=False, labelbottom=False)
+    axRb.spines["top"].set_visible(False)
+    dm = 0.5
+    kw = dict(marker=[(-1, -dm), (1, dm)], markersize=12, linestyle="none",
+              color="0.3", mec="0.3", mew=1.3, clip_on=False)
+    axRt.plot([0, 1], [0, 0], transform=axRt.transAxes, **kw)
+    axRb.plot([0, 1], [1, 1], transform=axRb.transAxes, **kw)
+
+    fig.suptitle("Toy (π_ref uniform, Gaussian logits): RKL noise-free at every |A|; non-admissible "
+                 "noise rises monotonically — magnitude toy-dependent, Stage A measures reality",
+                 fontsize=10.5, y=0.99)
     fig.tight_layout()
     out = os.path.join(FIGDIR, "toy_Asize_ablation.png")
     fig.savefig(out, dpi=150, bbox_inches="tight")
