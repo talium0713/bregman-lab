@@ -60,17 +60,21 @@ def main():
 
     # ---- Left: Φ(u) vs u (the root cause; exact, not toy) ----
     u = np.logspace(-8, 2, 2000)
-    LS_L = {"chi2": (0, (5, 2))}                    # χ² dashed: it coincides with Hel (both Φ→−1/u) as u→0
     for k in KEYS:
         phi = np.atleast_1d(REG[k].Phi(u)) * np.ones_like(u)
-        axL.plot(u, np.abs(phi), color=COLORS[k], lw=3.2 if k == "kl" else 1.9,
-                 ls=LS_L.get(k, "-"), zorder=8 if k == "kl" else 3, label=SHORT[k])
+        kw = dict(color=COLORS[k], lw=3.2 if k == "kl" else 1.9,
+                  zorder=8 if k == "kl" else 3, label=SHORT[k])
+        if k in ("hel", "chi2"):                     # Hel & χ² share the u→0 asymptote (both Φ≈−1/u,
+            kw.update(marker="D" if k == "chi2" else "o", markevery=185,   # since f(0⁺)=1 for both);
+                      ms=6.5 if k == "chi2" else 4.5, markeredgewidth=1.3,  # markers keep them distinct
+                      markerfacecolor="none" if k == "chi2" else COLORS[k])
+        axL.plot(u, np.abs(phi), **kw)
     axL.axhline(1.0, color="0.6", ls=":", lw=1, zorder=1)
     axL.set_xscale("log"); axL.set_yscale("log")
     axL.set_xlabel(r"$u = \pi_\theta/\pi_{\mathrm{ref}}$  (small $u$ = off-policy)")
     axL.set_ylabel(r"$|\Phi(u)| = |f'(u)-f(u)/u|$")
     axL.set_title(r"root cause: $\Phi_{\mathrm{RKL}}\equiv 1$, others diverge as $u\to0$")
-    axL.legend(ncol=2, fontsize=9, framealpha=0.9)
+    axL.legend(ncol=2, fontsize=9, framealpha=0.9, loc="upper right")
 
     # ---- Right (broken y-axis): non-admissible band on top, RKL ≈ 0 on bottom ----
     data = {}
@@ -80,35 +84,37 @@ def main():
             vals = np.array([offpolicy_phi_std(k, na, seed=s) for s in range(N_SEEDS)])
             med.append(np.median(vals)); lo.append(np.quantile(vals, .25)); hi.append(np.quantile(vals, .75))
         data[k] = (np.array(med), np.array(lo), np.array(hi))
-    LS_R = {"chi2": (0, (5, 2))}                     # χ² dashed: its std ≈ Hel's (both Φ→−1/u) at every |A|
     for k in KEYS:                                  # top: everyone except RKL, zoomed to their band
         if k == "kl":
             continue
         med, lo, hi = data[k]
-        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, ls=LS_R.get(k, "-"), marker="o", ms=4)
+        mk = "D" if k == "chi2" else "o"             # χ² open diamond: its std ≈ Hel's at every |A|
+        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, marker=mk,
+                  ms=6.5 if k == "chi2" else 4, markeredgewidth=1.3 if k == "chi2" else 1.0,
+                  markerfacecolor="none" if k == "chi2" else COLORS[k])
         axRt.fill_between(A_GRID, lo, hi, color=COLORS[k], alpha=0.12)
-    axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 2e7)
+    axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 1e8)
     # legend lists all 6 (incl. RKL, whose flat line lives in the bottom sub-panel below)
     handles = [Line2D([0], [0], color=COLORS[k], lw=3.0 if k == "kl" else 1.9,
-                      ls=LS_R.get(k, "-"), marker="o", ms=4, label=SHORT[k]) for k in KEYS]
+                      marker="D" if k == "chi2" else "o",
+                      ms=6.5 if k == "chi2" else 4, markeredgewidth=1.3 if k == "chi2" else 1.0,
+                      markerfacecolor="none" if k == "chi2" else COLORS[k], label=SHORT[k]) for k in KEYS]
     axRt.legend(handles=handles, ncol=3, fontsize=8, framealpha=0.9, loc="upper left")
     axRt.set_title(r"toy: off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$ vs |A|  (median ± IQR)")
-    axRt.text(3, 2.5e4, " |A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom")
-    axRt.text(152000, 2.5e4, "|A|=152k (Qwen) ", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="right")
+    axRt.text(2.6, 2.4e4, "|A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="center")
+    axRt.text(152000, 2.4e4, "|A|=152k (Qwen) ", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="right")
 
     axRb.plot(A_GRID, data["kl"][0], color=COLORS["kl"], lw=3.0, marker="o", ms=4)   # bottom: RKL ≈ 0
     axRb.axhline(0.0, color="0.6", ls=":", lw=1)
     axRb.set_xscale("log"); axRb.set_ylim(-6e-16, 6e-16); axRb.set_yticks([0])
-    axRb.text(A_GRID[0] * 1.4, 2.6e-16, r"RKL $\equiv 0$  (machine $\varepsilon\!\approx\!2{\times}10^{-16}$)",
-              fontsize=8, color=COLORS["kl"], va="bottom")
     for xa in (3, 152000):
         axRt.axvline(xa, color="0.8", ls="--", lw=1); axRb.axvline(xa, color="0.8", ls="--", lw=1)
     axRb.set_xlabel(r"action-set size $|A|$  (= vocab at LLM scale)")
 
-    # broken y-axis: hide the adjacent spines; the wavy break itself is drawn after layout
-    # (it needs the panels' final figure positions).
-    axRt.spines["bottom"].set_visible(False); axRt.tick_params(bottom=False, labelbottom=False)
-    axRb.spines["top"].set_visible(False)
+    # broken y-axis: hide the adjacent spines + the x-tick marks that sit against the break;
+    # the wavy break itself is drawn after layout (it needs the panels' final figure positions).
+    axRt.spines["bottom"].set_visible(False); axRt.tick_params(which="both", bottom=False, labelbottom=False)
+    axRb.spines["top"].set_visible(False); axRb.tick_params(which="both", top=False)
 
     fig.suptitle("Toy (π_ref uniform, Gaussian logits): RKL noise-free at every |A|; non-admissible "
                  "noise rises monotonically — magnitude toy-dependent, Stage A measures reality",
