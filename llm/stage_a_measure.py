@@ -46,6 +46,17 @@ def load_model(name):
     return m
 
 
+def _ids(x):
+    """apply_chat_template(tokenize=True) returns a list (old transformers) or a tokenizers.Encoding
+    / BatchEncoding (transformers 5.x). Normalize to a flat list of ints."""
+    if hasattr(x, "ids"):                           # tokenizers.Encoding
+        return list(x.ids)
+    if hasattr(x, "input_ids") or isinstance(x, dict):
+        v = x["input_ids"]
+        return list(v[0]) if v and isinstance(v[0], (list, tuple)) else list(v)
+    return list(x)
+
+
 def encode_chosen(tok, example, max_len):
     """Tokenize one preference example's `chosen` conversation; return (ids, completion_mask)."""
     msgs = example.get("chosen")
@@ -56,8 +67,8 @@ def encode_chosen(tok, example, max_len):
         tok.apply_chat_template(msgs, tokenize=False, enable_thinking=False); kw = {"enable_thinking": False}
     except TypeError:
         pass
-    full = tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=False, **kw)
-    prompt = tok.apply_chat_template(msgs[:-1], tokenize=True, add_generation_prompt=True, **kw)
+    full = _ids(tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=False, **kw))
+    prompt = _ids(tok.apply_chat_template(msgs[:-1], tokenize=True, add_generation_prompt=True, **kw))
     ids = torch.tensor(full[:max_len], dtype=torch.long)
     comp = torch.zeros(len(ids), dtype=torch.bool)
     comp[min(len(prompt), len(ids)):] = True        # mask = completion (response) tokens only
