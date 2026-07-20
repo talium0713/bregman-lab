@@ -12,7 +12,7 @@
 
 set -euo pipefail
 REPO="$SLURM_SUBMIT_DIR/.."
-export HF_HOME="$HOME/projects/aip-rudner/$USER/hf_cache"
+export HF_HOME="/scratch/$USER/hf_cache"   # /project is full; keep the model cache on scratch
 export HF_HUB_OFFLINE=1                 # compute node has no internet; use the prefetched cache
 export TOKENIZERS_PARALLELISM=false
 

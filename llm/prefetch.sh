@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export HF_HOME="$HOME/projects/aip-rudner/$USER/hf_cache"
+export HF_HOME="/scratch/$USER/hf_cache"        # /project is full; scratch has TBs (purged when idle)
 mkdir -p "$HF_HOME"
 module load python/3.12 cuda/12.2
 source "$REPO/venv_gpu/bin/activate"
