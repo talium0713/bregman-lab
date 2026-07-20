@@ -22,6 +22,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 from regularizers import REG, COLORS, SHORT
 
@@ -59,17 +60,17 @@ def main():
 
     # ---- Left: Φ(u) vs u (the root cause; exact, not toy) ----
     u = np.logspace(-8, 2, 2000)
+    LS_L = {"chi2": (0, (5, 2))}                    # χ² dashed: it coincides with Hel (both Φ→−1/u) as u→0
     for k in KEYS:
         phi = np.atleast_1d(REG[k].Phi(u)) * np.ones_like(u)
-        axL.plot(u, np.abs(phi), color=COLORS[k], lw=3.2 if k == "kl" else 1.8,
-                 zorder=8 if k == "kl" else 3, label=SHORT[k])
+        axL.plot(u, np.abs(phi), color=COLORS[k], lw=3.2 if k == "kl" else 1.9,
+                 ls=LS_L.get(k, "-"), zorder=8 if k == "kl" else 3, label=SHORT[k])
     axL.axhline(1.0, color="0.6", ls=":", lw=1, zorder=1)
     axL.set_xscale("log"); axL.set_yscale("log")
     axL.set_xlabel(r"$u = \pi_\theta/\pi_{\mathrm{ref}}$  (small $u$ = off-policy)")
     axL.set_ylabel(r"$|\Phi(u)| = |f'(u)-f(u)/u|$")
     axL.set_title(r"root cause: $\Phi_{\mathrm{RKL}}\equiv 1$, others diverge as $u\to0$")
     axL.legend(ncol=2, fontsize=9, framealpha=0.9)
-    axL.grid(True, which="both", alpha=0.15)
 
     # ---- Right (broken y-axis): non-admissible band on top, RKL ≈ 0 on bottom ----
     data = {}
@@ -79,15 +80,18 @@ def main():
             vals = np.array([offpolicy_phi_std(k, na, seed=s) for s in range(N_SEEDS)])
             med.append(np.median(vals)); lo.append(np.quantile(vals, .25)); hi.append(np.quantile(vals, .75))
         data[k] = (np.array(med), np.array(lo), np.array(hi))
+    LS_R = {"chi2": (0, (5, 2))}                     # χ² dashed: its std ≈ Hel's (both Φ→−1/u) at every |A|
     for k in KEYS:                                  # top: everyone except RKL, zoomed to their band
         if k == "kl":
             continue
         med, lo, hi = data[k]
-        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, marker="o", ms=4, label=SHORT[k])
+        axRt.plot(A_GRID, med, color=COLORS[k], lw=1.9, ls=LS_R.get(k, "-"), marker="o", ms=4)
         axRt.fill_between(A_GRID, lo, hi, color=COLORS[k], alpha=0.12)
     axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 2e7)
-    axRt.grid(True, which="both", alpha=0.15)
-    axRt.legend(ncol=2, fontsize=8, framealpha=0.9, loc="upper left")
+    # legend lists all 6 (incl. RKL, whose flat line lives in the bottom sub-panel below)
+    handles = [Line2D([0], [0], color=COLORS[k], lw=3.0 if k == "kl" else 1.9,
+                      ls=LS_R.get(k, "-"), marker="o", ms=4, label=SHORT[k]) for k in KEYS]
+    axRt.legend(handles=handles, ncol=3, fontsize=8, framealpha=0.9, loc="upper left")
     axRt.set_title(r"toy: off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$ vs |A|  (median ± IQR)")
     axRt.text(3, 2.5e4, " |A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom")
     axRt.text(152000, 2.5e4, "|A|=152k (Qwen) ", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="right")
@@ -99,22 +103,30 @@ def main():
               fontsize=8, color=COLORS["kl"], va="bottom")
     for xa in (3, 152000):
         axRt.axvline(xa, color="0.8", ls="--", lw=1); axRb.axvline(xa, color="0.8", ls="--", lw=1)
-    axRb.grid(True, which="both", axis="x", alpha=0.15)
     axRb.set_xlabel(r"action-set size $|A|$  (= vocab at LLM scale)")
 
-    # broken-axis diagonal cut marks between the two right panels
+    # broken y-axis: hide the adjacent spines; the wavy break itself is drawn after layout
+    # (it needs the panels' final figure positions).
     axRt.spines["bottom"].set_visible(False); axRt.tick_params(bottom=False, labelbottom=False)
     axRb.spines["top"].set_visible(False)
-    dm = 0.5
-    kw = dict(marker=[(-1, -dm), (1, dm)], markersize=12, linestyle="none",
-              color="0.3", mec="0.3", mew=1.3, clip_on=False)
-    axRt.plot([0, 1], [0, 0], transform=axRt.transAxes, **kw)
-    axRb.plot([0, 1], [1, 1], transform=axRb.transAxes, **kw)
 
     fig.suptitle("Toy (π_ref uniform, Gaussian logits): RKL noise-free at every |A|; non-admissible "
                  "noise rises monotonically — magnitude toy-dependent, Stage A measures reality",
                  fontsize=10.5, y=0.99)
     fig.tight_layout()
+
+    # wavy break marks (물결선) across the gap between the two right panels — two parallel squiggles
+    # in figure coords so both have identical visual amplitude regardless of the 5:1 height split.
+    fig.canvas.draw()
+    bt, bb = axRt.get_position(), axRb.get_position()
+    xa0, xa1 = bt.x0, bt.x1
+    yc = 0.5 * (bt.y0 + bb.y1)                       # middle of the gap
+    xx = np.linspace(xa0, xa1, 600)
+    wave = 0.008 * np.sin(2 * np.pi * 22 * (xx - xa0) / (xa1 - xa0))
+    for dy in (0.007, -0.007):                       # two stacked squiggles = unmistakable break
+        fig.add_artist(Line2D(xx, yc + dy + wave, color="0.30", lw=1.6,
+                              solid_capstyle="round", clip_on=False, zorder=60))
+
     out = os.path.join(FIGDIR, "toy_Asize_ablation.png")
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print("wrote", out)
