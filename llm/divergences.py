@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import torch
 
-KEYS = ["kl", "rkl", "js", "hel", "chi2", "adiv", "euc"]     # = tabular REGKEYS (reordered)
+KEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2", "euc"]     # = tabular REGKEYS order (α-div 2nd; matches COLORS)
 SHORT = {"kl": "RKL", "rkl": "FKL", "js": "JS", "hel": "Hel",
          "chi2": "χ²", "adiv": "α-div", "euc": "Euc"}
 COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
