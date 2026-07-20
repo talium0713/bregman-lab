@@ -73,8 +73,11 @@ I'll write it.
 
 ## Notes
 
-- Each array task runs `run_tabular.py`/`run_adiv.py` with `--jobs $SLURM_CPUS_PER_TASK` (its 100
-  MDPs parallelized over the requested cores). 13 tasks × 8 cores schedule independently.
+- Each array task runs `run_tabular.py`/`run_adiv.py` with `--jobs $SLURM_CPUS_PER_TASK` (its MDP
+  blocks parallelized over the requested cores). 13 tasks × 16 cores schedule independently.
+- **Timing (measured):** ~8.6 min per MDP block on this hardware. Biggest task is t2 (peak ablation,
+  200 blocks) ≈ 1.8 h over 16 cores; the rest are shorter. `--time=8:00:00` leaves plenty of margin —
+  do NOT set it low (a 45-min limit killed the first run at block 40/200).
 - `fig_tabular.py` **merges all** `data/tabular/run_*/results.json` keyed by calibration peak, so a
   clean data dir per fresh reproduction is safest.
 - Divergence colors were reassigned to the "Matching Gradient" palette in `../python/regularizers.py`
