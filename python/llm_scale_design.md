@@ -232,8 +232,27 @@ gap between the single-sample estimate and the exact vocab sum, for all 7 diverg
 - costs ~1 GPU-hour, needs no training, and is already a paper figure
 - validates the whole premise before any training budget is spent
 
-**Stage B — training.** Actual DPO runs per divergence, off-policy, multi-seed. Only after Stage A
-confirms the measurement is clean and the tail handling from §4 works.
+**Stage B — training.** Token-level f-DPO, off-policy (UltraFeedback pairs), per divergence. Only
+after Stage A confirms the measurement is clean and the §4 tail handling works.
+
+Code: `llm/stage_b_train.py` (score in `score_from_logits`, math validated by `--selftest` with no
+GPU). π_ref = Qwen3-Base frozen; π_θ init = same; β = 0.1, lr 5e-7, sum reward (§3c). Per completion
+token t:
+
+    S(τ) = β · Σ_t [ f'(u_t) − C_Ω(s_t) ]
+
+- `--inner exact`  : C_Ω = Σ_a π_θ(a)Φ(u_a), full-vocab sum (fp32; the π_θ weight tames the 1/u
+  tail so this arm is stable — TDPO's per-state term).
+- `--inner sample` : C_Ω ≈ Φ(u_{y_t}), single logged token (the realistic off-policy estimate;
+  heavy-tailed for non-admissible Ω, exactly 1 for RKL).
+
+**Design = exact vs single-sample × 7 divergences** (`jobs/stage_b.slrm`, 13-way array; euc has no
+single-sample inner term → exact only). Prediction: RKL identical in both arms (= standard DPO, the
+§1 anchor, verified to 2e-16); non-admissible degrade under `sample` and recover under `exact`,
+isolating the off-policy inner-term noise as the cause. χ² reported separately (§0b confound); euc
+flagged (Bregman). Heavy-tail guard: clamp |log u| (§4), identical across Ω. 1.7B pilot first, then
+4B (2×L40S FSDP) for the vocab-scale story. Metrics: eval preference accuracy, reward margin, KL
+drift; length-bias needs generation (separate eval, TODO).
 
 Stage A is the right first Killarney job: cheap, decisive, and it de-risks Stage B entirely.
 

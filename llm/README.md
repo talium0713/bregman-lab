@@ -50,13 +50,38 @@ Output `results/stageA_qwen3_1p7b.{json,png}`: per-divergence std of the single-
 single-vs-exact gap (`--exact`), and the `log_u` distribution (how off-policy the data is). This is
 the LLM-scale analogue of `../python/figs/toy_Asize_ablation.png` on a *real* π_ref instead of a toy.
 
-## Stage B — training (later)
+## Stage B — training (scaffolded)
 
-Token-level DPO per §5 (TRL fork + TDPO math), standard sum, off-policy, seed 3–5, all 7 divergences.
-1.7B = full DPO on 1× L40S; 4B = full DPO on **2× L40S + FSDP/ZeRO-3** (accelerate/torchrun). Needs
-the `selective_log_softmax`/liger bypass + `precompute_ref_log_probs=False` for the full-vocab inner
-term. Not scaffolded yet — do Stage A first and read its numbers (esp. the tail handling) before
-committing training compute.
+Token-level f-DPO, own trainer (no TRL — the full-vocab inner term is a few lines, and TRL fights
+the Alliance no-pyarrow constraint). Score `S(τ) = β Σ_t[f'(u_t) − C_Ω(s_t)]`, standard sum (§3c),
+off-policy. **Design = exact vs single-sample inner term × 7 divergences** (`jobs/stage_b.slrm`,
+13-way array). RKL is the correctness anchor: both arms collapse to standard DPO, `--selftest`
+verifies to 2e-16.
+
+```
+  make_pairs_jsonl.py   dump UltraFeedback PAIRS (chosen+rejected) -> JSONL — run on your MAC, then scp
+  stage_b_train.py      the trainer; `--selftest` validates the math with no GPU/models
+  jobs/stage_b.slrm     1× L40S array (13 runs: 6 f-divs × {sample,exact} + euc exact)
+```
+
+```bash
+# on your MAC:
+python make_pairs_jsonl.py --split train_prefs --max 20000 --out data/uf_pairs_train.jsonl
+python make_pairs_jsonl.py --split test_prefs  --max 1000  --out data/uf_pairs_test.jsonl
+scp data/uf_pairs_*.jsonl talium@killarney.alliancecan.ca:/scratch/talium/bregman-lab/llm/data/
+
+# on Killarney (validate math first — instant, CPU):
+python stage_b_train.py --selftest
+# smoke one arm on GPU (30 steps), then the full sweep:
+python stage_b_train.py --div kl --inner sample --steps 30 --out results/smoke
+sbatch jobs/stage_b.slrm
+```
+
+`--inner exact` = full-vocab C_Ω (fp32, π_θ-weighted → tail-tamed); `--inner sample` = single logged
+token (realistic off-policy, heavy-tailed for non-admissible). 1.7B pilot on 1× L40S first; 4B via
+**2× L40S + FSDP** is the next step (not yet wired — `stage_b_train.py` is currently single-GPU).
+Prediction: RKL invariant across arms; non-admissible degrade under `sample`, recover under `exact`.
+Length-bias measurement needs generation (separate eval, TODO). χ²/euc reported separately.
 
 ## Notes / open items
 

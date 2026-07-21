@@ -49,25 +49,51 @@ def phi_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A)
     raise ValueError(f"unknown / non-scalar key {key!r}")
 
 
+def fprime_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A) -> torch.Tensor:
+    """f'(u) at logged tokens — the DPO chosen-action term [∇Ω]_a — from log_u = log(π_θ/π_ref).
+    Same shape/dtype convention as phi_from_logu. NOT for 'euc' (use π_θ(a)−π_ref(a) directly).
+
+    Identity used by the RKL anchor: f'(u) − Φ(u) = f(u)/u, and for RKL f/u = ln u, so the
+    single-sample score Σ[f'−Φ] = Σ ln u = the standard DPO log-ratio (see stage_b_train)."""
+    lu = log_u if log_u.dtype == torch.float64 else log_u.float()
+    inv_u = torch.exp(-lu)
+    if key == "kl":                       # ln u + 1
+        return lu + 1.0
+    if key == "rkl":                      # −1/u
+        return -inv_u
+    if key == "chi2":                     # 2(u − 1)
+        return 2.0 * (torch.exp(lu) - 1.0)
+    if key == "hel":                      # 1 − u^(−1/2)
+        return 1.0 - torch.exp(-0.5 * lu)
+    if key == "js":                       # ln(2u/(1+u)) = ln2 + ln u − log1p(u)
+        return LN2 + lu - torch.log1p(torch.exp(lu))
+    if key == "adiv":                     # (u^(a−1) − 1)/(a − 1)
+        e = adiv_a - 1.0
+        return (torch.exp(e * lu) - 1.0) / e
+    raise ValueError(f"unknown / non-scalar key {key!r}")
+
+
 def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
     """Φ_euc at a token = π_θ(a) − π_ref(a). Needs the actual probabilities, not just u."""
     return (p_policy - p_ref).float()
 
 
 def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
-            adiv_a: float = DEFAULT_ADIV_A, chunk: int = 256) -> torch.Tensor:
+            adiv_a: float = DEFAULT_ADIV_A, chunk: int = 256,
+            dtype: torch.dtype = torch.float64) -> torch.Tensor:
     """Closed-form inner term C_Ω(π_θ(·|s)) = Σ_a π_θ(a)·Φ(u_a), summed over the FULL vocab.
     log_pi, log_ref: full-vocab log-probs, shape [T, V]. Returns [T] (per position).
     RKL comes out exactly 1 by arithmetic; euc uses its own Bregman form.
 
-    Reduced in float64 (the heavy-tailed χ²/FKL lose accuracy in float32) and CHUNKED over the token
-    dim: the fp64 full-vocab temporaries are only ~[chunk, V] (256×152k×8 ≈ 0.3 GB), which bounds
-    peak GPU memory and avoids OOM on long responses / bigger models."""
+    `dtype`: reduction precision. Stage A measurement uses float64 (the heavy-tailed χ²/FKL lose
+    accuracy in float32). Stage B TRAINING passes float32 — here each term π_θ(a)·Φ(u_a) is bounded
+    (→ −f(0⁺)·π_ref(a) as u→0, the π_θ weight cancelling the 1/u tail), so fp32 is accurate and
+    half the memory for backprop. CHUNKED over the token dim to bound the full-vocab temporaries."""
     if log_pi.shape[0] == 0:
-        return log_pi.new_zeros(0, dtype=torch.float64)
+        return log_pi.new_zeros(0, dtype=dtype)
     outs = []
     for i in range(0, log_pi.shape[0], chunk):
-        lp = log_pi[i:i + chunk].double(); lr = log_ref[i:i + chunk].double()
+        lp = log_pi[i:i + chunk].to(dtype); lr = log_ref[i:i + chunk].to(dtype)
         pi = torch.exp(lp)
         if key == "euc":                  # <π, π−π_ref> − ½‖π−π_ref‖²
             d = pi - torch.exp(lr)
