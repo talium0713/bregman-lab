@@ -22,8 +22,15 @@ cd "$REPO/python"
 export MPLBACKEND=Agg
 echo "=== figs on $(hostname) | $(date) ==="
 
+# Start from a clean figs/ so the snapshot below collects ONLY what this job regenerates. Prior runs
+# left stale figures (obsolete part3_*, single-peak headline orphans) that the blind `cp -f figs/*.png`
+# would otherwise copy with the OLD palette — the source of the "not consistently green" mixups.
+rm -f figs/*.png figs/tabular_calibration.*
+
 # B/C: headline + peak ablation + calibration table (fig_tabular merges all data/tabular/run_*)
 python fig_tabular.py
+# B: transition-noise (ε) ablation (tabular_eps_*) — needs the eps run + a headline run for the ε=0.2 point
+python fig_eps.py || echo "WARN: fig_eps failed (missing eps/headline data on this node?) — continuing"
 # C: horizon
 python fig_horizon.py
 # D: alpha-div sweep (standard) + kln, each run needs its own results.json path
@@ -35,6 +42,9 @@ python fig_adiv_compare.py       # adiv_compare_p80 (knife-edge vs kln smooth we
 python fig_adiv_invariant.py     # adiv_invariant (std_pi[C_Omega] vs a)
 # A: M1/M2 mechanism (self-contained MC; no data run needed)
 python fig_mechanism.py
+# §3 / toy analytical figures (self-contained; no data run) — keep the snapshot a complete green set
+python fig_length_variance.py
+python fig_toy_ablation.py
 # E: CI (n=10 vs n=100) — NO reproducible generator in the repo yet; see README. Skipped.
 
 # --- collect a distinguishable snapshot into killarney/results/ -------------
