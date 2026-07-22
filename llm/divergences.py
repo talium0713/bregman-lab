@@ -24,7 +24,7 @@ KEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2", "euc"]     # = tabular REGKEYS
 SHORT = {"kl": "RKL", "rkl": "FKL", "js": "JS", "hel": "Hel",
          "chi2": "χ²", "adiv": "α-div", "euc": "Euc"}
 COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
-          "hel": "#0088E1", "chi2": "#008CB9", "euc": "#008B83"}
+          "hel": "#0088E1", "chi2": "#12AE5A", "euc": "#008B83"}   # chi2 green: kept in sync with python/regularizers.py
 DEFAULT_ADIV_A = 0.5
 LN2 = math.log(2.0)
 
