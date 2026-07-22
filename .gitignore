@@ -9,3 +9,9 @@ __pycache__/
 # superseded first tabular run (3 fixed MDP × 100 seed; replaced by the 100-independent-MDP design A)
 python/data/tabular/run_20260629_140248/
 python/data/tabular/_*/
+
+# LLM preference JSONL — large (train ~78 MB) and regenerable via llm/make_pairs_jsonl.py
+llm/data/*.jsonl
+# GPU venvs / cluster caches never belong in git
+venv_gpu/
+llm/venv_gpu/
