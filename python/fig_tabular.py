@@ -81,7 +81,7 @@ def _design_str(man):
 
 def fig_headline(man, agg_p, peak, nmc):
     """One peak's 3-panel headline: off (bars), off_on & on (Δπ vs n_mc, ±95%CI)."""
-    COLORS, SHORT = man["colors"], man["short"]
+    COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
     regimes = [r for r in ("off", "off_on", "on") if r in agg_p]
     titles = {"off": "off-policy (single logged a′ · n_mc irrelevant)",
               "off_on": "off-on-policy / Dyna (fresh n_mc resample)",
@@ -125,7 +125,7 @@ def fig_headline(man, agg_p, peak, nmc):
 
 def fig_offpolicy_peaks(man, agg, peaks):
     """The off-policy punchline across all peaks: grouped bars per Ω, one bar per peak."""
-    COLORS, SHORT = man["colors"], man["short"]
+    COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
     fig, ax = plt.subplots(figsize=(8.2, 4.4))
     x = np.arange(len(REGKEYS)); w = 0.8 / len(peaks)
     for j, peak in enumerate(peaks):
@@ -149,7 +149,7 @@ def fig_offpolicy_peaks(man, agg, peaks):
 def fig_alpha_sweep(man, peaks):
     """Deterministic peak(α) sweep for the representative MDP 0, with the calibrated α anchors for
     every peak present marked.  No randomness: solve_dp is a pure function of the reward draw."""
-    COLORS, SHORT = man["colors"], man["short"]
+    COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
     root, env = man["root_seed"], man["env"]
     gamma, eps, depth = env["gamma"], env["eps"], env["depth"]
     rew = new_rewards(depth, rng_for(root, "reward", 0))
