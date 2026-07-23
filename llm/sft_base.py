@@ -34,9 +34,15 @@ from stage_b_train import _encode_side, load_model      # reuse tokenization + b
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3-1.7B-Base")
-    ap.add_argument("--data", default="data/uf_pairs_train.jsonl", help="uses each example's 'chosen' conversation")
+    ap.add_argument("--data", default="data/uf_pairs_train.jsonl")
+    ap.add_argument("--field", default="chosen", help="JSONL key holding the conversation (UF pairs: 'chosen'; UltraChat: 'messages')")
     ap.add_argument("--steps", type=int, default=500, help="LIGHT: enough to move u off 1, not full convergence")
+    ap.add_argument("--epochs", type=int, default=0, help="if >0, train this many passes over the data (overrides --steps; Zephyr-style full SFT)")
     ap.add_argument("--lr", type=float, default=1e-5)
+    ap.add_argument("--lr-schedule", default="constant", choices=["constant", "linear", "cosine"])
+    ap.add_argument("--warmup-ratio", type=float, default=0.0)
+    ap.add_argument("--weight-decay", type=float, default=0.0)
+    ap.add_argument("--adam-beta2", type=float, default=0.95)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--grad-clip", type=float, default=1.0)
@@ -58,10 +64,20 @@ def main():
         pass
 
     model = load_model(args.model, train=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95))
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, args.adam_beta2),
+                            weight_decay=args.weight_decay)
 
     ds = [json.loads(l) for l in open(args.data) if l.strip()]
     rng = np.random.default_rng(args.seed); rng.shuffle(ds)
+
+    if args.epochs > 0:                               # full-SFT: epochs override --steps
+        args.steps = max(1, len(ds) * args.epochs // args.grad_accum)
+    sched = None
+    if args.lr_schedule != "constant":
+        from transformers import get_scheduler
+        sched = get_scheduler(args.lr_schedule, opt,
+                              num_warmup_steps=int(args.warmup_ratio * args.steps),
+                              num_training_steps=args.steps)
 
     def gen():
         while True:
@@ -71,13 +87,14 @@ def main():
 
     hist = []
     t0 = time.time()
-    print(f"=== light SFT {args.model} on chosen | steps={args.steps} lr={args.lr} accum={args.grad_accum} | n={len(ds)} ===")
+    print(f"=== SFT {args.model} on '{args.field}' | steps={args.steps}{f'(={args.epochs}ep)' if args.epochs else ''} "
+          f"lr={args.lr}({args.lr_schedule},wu{args.warmup_ratio}) wd={args.weight_decay} accum={args.grad_accum} | n={len(ds)} ===")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)
         losses, got = [], 0
         while got < args.grad_accum:
             ex = next(it)
-            msgs = ex.get("chosen")
+            msgs = ex.get(args.field)
             if not (isinstance(msgs, list) and msgs):
                 continue
             ids, comp = _encode_side(tok, msgs, args.max_len, kw)
@@ -92,6 +109,8 @@ def main():
             losses.append(nll.item()); got += 1
         gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip).item()
         opt.step()
+        if sched is not None:
+            sched.step()
         if step % args.log_every == 0 or step == 1:
             rec = {"step": step, "loss": float(np.mean(losses)), "grad_norm": gnorm, "sec": round(time.time() - t0, 1)}
             hist.append(rec)

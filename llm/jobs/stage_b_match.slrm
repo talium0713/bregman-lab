@@ -1,0 +1,46 @@
+#!/bin/bash
+# Stage B — DPO recipe matched to arXiv:2512.00778 (Qwen3-1.7B) for a like-for-like comparison.
+# Token-level single-sample f-DPO, 6 divergences, from the UltraChat SFT init, full UltraFeedback.
+# RKL (kl) reproduces their standard DPO number (Φ≡1 ⇒ single-sample == exact == standard DPO); the
+# other divergences are then read at the SAME standard operating point (admissibility, not under-tuning).
+# Needs first:  data/uf_pairs_train_full.jsonl (61k) + results/sft_uc_1p7b_model (jobs/sft_ultrachat.slrm).
+# Submit FROM llm/:  sbatch jobs/stage_b_match.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBmatch
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-6
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=18:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)          # kl=reverse-KL (their DPO), rkl=forward-KL
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")
+
+echo "=== Stage B MATCHED Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
+
+# arXiv:2512.00778 Qwen3-1.7B DPO recipe: beta 0.1, lr 5e-5 linear + 5% warmup, effective batch 512,
+# 2 epochs, weight decay 0.01, AdamW beta2 0.999, grad clip 1, UltraChat SFT init, full UltraFeedback.
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_uc_1p7b_model \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --seed 0 \
+  --out "results/stageB_${DIV}_match1p7b"
+
+echo "=== done matched div=$DIV | $(date) ==="

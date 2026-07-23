@@ -298,7 +298,12 @@ def main():
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument("--lr", type=float, default=5e-7)
     ap.add_argument("--steps", type=int, default=1000)
-    ap.add_argument("--grad-accum", type=int, default=8, help="pairs per optimizer step")
+    ap.add_argument("--epochs", type=int, default=0, help="if >0, train this many passes over ds_train (overrides --steps)")
+    ap.add_argument("--lr-schedule", default="constant", choices=["constant", "linear", "cosine"])
+    ap.add_argument("--warmup-ratio", type=float, default=0.0, help="fraction of steps for LR warmup")
+    ap.add_argument("--weight-decay", type=float, default=0.0)
+    ap.add_argument("--adam-beta2", type=float, default=0.95, help="AdamW β2 (0.999 = standard DPO/TRL default)")
+    ap.add_argument("--grad-accum", type=int, default=8, help="pairs per optimizer step (effective batch)")
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
     ap.add_argument("--kln", action="store_true", help="KL-normalize the generator (f'(1)=1); no freeze from π_ref init. Not for euc.")
@@ -342,7 +347,8 @@ def main():
 
     ref = load_model(args.ref, train=False)
     policy = load_model(args.policy or args.ref, train=True)
-    opt = torch.optim.AdamW(policy.parameters(), lr=args.lr, betas=(0.9, 0.95))
+    opt = torch.optim.AdamW(policy.parameters(), lr=args.lr, betas=(0.9, args.adam_beta2),
+                            weight_decay=args.weight_decay)
 
     ds = [json.loads(l) for l in open(args.data) if l.strip()]
     rng = np.random.default_rng(args.seed); rng.shuffle(ds)
@@ -352,6 +358,15 @@ def main():
     else:                                             # fallback: hold out a slice of --data
         n_eval = max(args.eval_n, int(len(ds) * args.eval_frac))
         ds_eval, ds_train = ds[:n_eval], ds[n_eval:]
+
+    if args.epochs > 0:                               # epochs override --steps (== a full pass count over ds_train)
+        args.steps = max(1, len(ds_train) * args.epochs // args.grad_accum)
+    sched = None
+    if args.lr_schedule != "constant":                # linear/cosine decay with warmup (match the paper's DPO recipe)
+        from transformers import get_scheduler
+        sched = get_scheduler(args.lr_schedule, opt,
+                              num_warmup_steps=int(args.warmup_ratio * args.steps),
+                              num_training_steps=args.steps)
 
     def train_iter():
         while True:
@@ -366,8 +381,10 @@ def main():
     t0 = time.time()
     seg = f"newline" if args.step_mode == "newline" else (f"fixed×{args.step_size}" if args.step_mode == "fixed" else "token")
     print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step={seg} "
-          f"beta={args.beta} lr={args.lr} steps={args.steps} accum={args.grad_accum} | "
-          f"train={len(ds_train)} eval={len(ds_eval)}{' ('+args.eval_data+')' if args.eval_data else ' (train-slice)'} ===")
+          f"beta={args.beta} lr={args.lr}({args.lr_schedule},wu{args.warmup_ratio}) wd={args.weight_decay} "
+          f"β2={args.adam_beta2} steps={args.steps}{f'(={args.epochs}ep)' if args.epochs else ''} accum={args.grad_accum} "
+          f"clip={args.grad_clip} | train={len(ds_train)} eval={len(ds_eval)}"
+          f"{' ('+args.eval_data+')' if args.eval_data else ' (train-slice)'} ===")
     if args.step_mode == "newline":                   # sanity: confirm the tokenizer's newline splitting fired
         e0 = encode_pair(tok, ds_train[0], args.max_len, kw, "newline")
         if e0 is not None:
@@ -391,6 +408,8 @@ def main():
             losses.append(loss.item()); accs.append(int(Sw.item() > Sl.item())); got += 1
         gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
         opt.step()
+        if sched is not None:
+            sched.step()
 
         if step % args.log_every == 0 or step == 1:
             rec = {"step": step, "loss": float(np.mean(losses)), "train_acc": float(np.mean(accs)),
