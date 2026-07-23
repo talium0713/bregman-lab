@@ -21,7 +21,7 @@ from matplotlib.lines import Line2D
 
 from divergences import KEYS, SHORT, COLORS
 
-SAMPLE_LS = (0, (4, 2))          # dashed = single-sample arm; solid = exact
+SAMPLE_LS = (0, (6, 2))          # dashed (bold, long) = single-sample arm; solid = exact
 
 
 def load(d, tag):
@@ -63,20 +63,21 @@ def main():
 
     # ── Left: eval-accuracy learning curves. solid = exact, dashed = single-sample ──
     for k in order:
-        for inner, ls in (("exact", "-"), ("sample", SAMPLE_LS)):
+        for inner, ls, lwb in (("exact", "-", 1.7), ("sample", SAMPLE_LS, 2.4)):   # sample dashed = bolder
             h = runs[k].get(inner)
             if not h:
                 continue
             axL.plot([r["step"] for r in h], [r.get("eval_acc", np.nan) for r in h],
-                     ls=ls, color=COLORS[k], lw=2.6 if k == "kl" else 1.6,
+                     ls=ls, color=COLORS[k], lw=lwb + (1.0 if k == "kl" else 0.0),
+                     solid_capstyle="round", dash_capstyle="round",
                      zorder=9 if k == "kl" else 3)
     axL.axhline(0.5, color="0.7", ls=":", lw=1)
     axL.set_xlabel("training step"); axL.set_ylabel("held-out preference accuracy")
     handles = [Line2D([0], [0], color=COLORS[k], lw=2.6 if k == "kl" else 1.8, label=SHORT[k]) for k in order]
     if paired:
         axL.set_title("learning curves  ·  solid = exact inner term, dashed = single-sample")
-        handles += [Line2D([0], [0], color="0.35", ls="-", label="exact"),
-                    Line2D([0], [0], color="0.35", ls=SAMPLE_LS, label="single-sample")]
+        handles += [Line2D([0], [0], color="0.35", ls="-", lw=1.7, label="exact"),
+                    Line2D([0], [0], color="0.35", ls=SAMPLE_LS, lw=2.4, label="single-sample")]
     else:
         axL.set_title(f"learning curves  ·  {arm} inner term  (only RKL rises; others stay ≈ 0.5)")
     axL.legend(handles=handles, ncol=2, fontsize=7.5, framealpha=0.9)
@@ -111,9 +112,10 @@ def main():
         axR.set_title(r"off-policy inner-term noise (§3b): RKL bounded, non-admissible blow up")
     axR.set_xticks(x); axR.set_xticklabels([SHORT[k] for k in order])
 
-    tagname = {"sft1p7b": "SFT init · single-sample", "kln1p7b": "kln · single-sample",
-               "1p7b": "exact vs single-sample"}.get(args.tag, args.tag)
-    fig.suptitle(f"Stage B · token-level f-DPO (Qwen3-1.7B, UltraFeedback) · {tagname}", fontsize=11, y=1.0)
+    base = {"sft1p7b": "SFT init", "kln1p7b": "kln"}.get(args.tag, args.tag)
+    arm_desc = "exact vs single-sample" if paired else f"{arm} inner term"
+    fig.suptitle(f"Stage B · token-level f-DPO (Qwen3-1.7B, UltraFeedback) · {base} · {arm_desc}",
+                 fontsize=11, y=1.0)
     fig.tight_layout(); fig.savefig(out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", out + ".png  ·  divergences:", ", ".join(SHORT[k] for k in order))
 
