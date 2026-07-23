@@ -163,7 +163,7 @@ REGKEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2", "euc"]
 # mathematically near-identical off-policy (both f(0⁺)=1 ⇒ Φ≈−1/u), so χ² is pulled to a distinct
 # green to tell the two coincident curves apart.
 COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
-          "hel": "#0088E1", "chi2": "#12AE5A", "euc": "#008B83"}
+          "hel": "#00BCD4", "chi2": "#12AE5A", "euc": "#008B83"}
 SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
