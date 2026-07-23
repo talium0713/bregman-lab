@@ -72,7 +72,7 @@ def main():
     # ── Left: eval-accuracy learning curves. solid = exact, dashed = single-sample ──
     # both arms solid + smoothed; distinguished by opacity (single-sample = crisp reference, exact = faded)
     for k in order:
-        for inner, alpha, z in (("exact", 0.8, 2), ("sample", 1.0, 4)):
+        for inner, alpha, z in (("exact", 0.5, 2), ("sample", 1.0, 4)):
             h = runs[k].get(inner)
             if not h:
                 continue
@@ -83,9 +83,9 @@ def main():
     axL.set_xlabel("training step"); axL.set_ylabel("held-out preference accuracy (smoothed)")
     handles = [Line2D([0], [0], color=COLORS[k], lw=2.6 if k == "kl" else 1.8, label=SHORT[k]) for k in order]
     if paired:
-        axL.set_title("learning curves  ·  single-sample (solid) vs exact (faded, α=0.8)")
+        axL.set_title("learning curves  ·  single-sample (solid) vs exact (faded, α=0.5)")
         handles += [Line2D([0], [0], color="0.3", lw=2.4, alpha=1.0, label="single-sample"),
-                    Line2D([0], [0], color="0.3", lw=2.4, alpha=0.8, label="exact")]
+                    Line2D([0], [0], color="0.3", lw=2.4, alpha=0.5, label="exact")]
     else:
         axL.set_title(f"learning curves  ·  {arm} inner term  (only RKL rises; others stay ≈ 0.5)")
     axL.legend(handles=handles, ncol=2, fontsize=7.5, framealpha=0.9)
