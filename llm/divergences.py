@@ -28,49 +28,58 @@ COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
 DEFAULT_ADIV_A = 0.5
 LN2 = math.log(2.0)
 
+# kln (KL-normalization, Appendix E): shift the generator by (1−f'(1))·(t−1) so f'_kln(1)=1 for all.
+# Effect: f'_kln = f' + s, Φ_kln = Φ + s/u, C_kln = C + s  (s = 1 − f'(1)). euc excluded (Bregman).
+KLN_SHIFT = {"kl": 0.0, "rkl": 2.0, "adiv": 1.0, "js": 1.0, "hel": 1.0, "chi2": 1.0}
 
-def phi_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A) -> torch.Tensor:
+
+def phi_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A,
+                  kln: bool = False) -> torch.Tensor:
     """Φ(u) for f-divergences, from log_u = log(π_θ/π_ref). Returns same shape as log_u (float32).
-    NOT for 'euc' (Φ_euc needs the raw probabilities, see phi_euc)."""
+    kln=True adds the KL-normalization shift s/u (s=1−f'(1)). NOT for 'euc'."""
     lu = log_u if log_u.dtype == torch.float64 else log_u.float()   # keep fp64; upcast bf16/fp16
     inv_u = torch.exp(-lu)                # 1/u
     if key == "kl":
-        return torch.ones_like(lu)
-    if key == "rkl":                      # (ln u − 1)/u
-        return (lu - 1.0) * inv_u
-    if key == "chi2":                     # u − 1/u
-        return torch.exp(lu) - inv_u
-    if key == "hel":                      # u^(−1/2) − u^(−1)
-        return torch.exp(-0.5 * lu) - inv_u
-    if key == "js":                       # (1/u)·ln((1+u)/2) = (log1p(u) − ln2)/u
-        return (torch.log1p(torch.exp(lu)) - LN2) * inv_u
-    if key == "adiv":                     # (u^a − 1)/(a u)
-        return (torch.exp(adiv_a * lu) - 1.0) / adiv_a * inv_u
-    raise ValueError(f"unknown / non-scalar key {key!r}")
+        base = torch.ones_like(lu)
+    elif key == "rkl":                    # (ln u − 1)/u
+        base = (lu - 1.0) * inv_u
+    elif key == "chi2":                   # u − 1/u
+        base = torch.exp(lu) - inv_u
+    elif key == "hel":                    # u^(−1/2) − u^(−1)
+        base = torch.exp(-0.5 * lu) - inv_u
+    elif key == "js":                     # (1/u)·ln((1+u)/2) = (log1p(u) − ln2)/u
+        base = (torch.log1p(torch.exp(lu)) - LN2) * inv_u
+    elif key == "adiv":                   # (u^a − 1)/(a u)
+        base = (torch.exp(adiv_a * lu) - 1.0) / adiv_a * inv_u
+    else:
+        raise ValueError(f"unknown / non-scalar key {key!r}")
+    return base + KLN_SHIFT[key] * inv_u if kln else base      # Φ_kln = Φ + s/u
 
 
-def fprime_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A) -> torch.Tensor:
+def fprime_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A,
+                     kln: bool = False) -> torch.Tensor:
     """f'(u) at logged tokens — the DPO chosen-action term [∇Ω]_a — from log_u = log(π_θ/π_ref).
-    Same shape/dtype convention as phi_from_logu. NOT for 'euc' (use π_θ(a)−π_ref(a) directly).
+    kln=True adds the constant shift s=1−f'(1) (so f'_kln(1)=1). NOT for 'euc'.
 
     Identity used by the RKL anchor: f'(u) − Φ(u) = f(u)/u, and for RKL f/u = ln u, so the
     single-sample score Σ[f'−Φ] = Σ ln u = the standard DPO log-ratio (see stage_b_train)."""
     lu = log_u if log_u.dtype == torch.float64 else log_u.float()
     inv_u = torch.exp(-lu)
     if key == "kl":                       # ln u + 1
-        return lu + 1.0
-    if key == "rkl":                      # −1/u
-        return -inv_u
-    if key == "chi2":                     # 2(u − 1)
-        return 2.0 * (torch.exp(lu) - 1.0)
-    if key == "hel":                      # 1 − u^(−1/2)
-        return 1.0 - torch.exp(-0.5 * lu)
-    if key == "js":                       # ln(2u/(1+u)) = ln2 + ln u − log1p(u)
-        return LN2 + lu - torch.log1p(torch.exp(lu))
-    if key == "adiv":                     # (u^(a−1) − 1)/(a − 1)
-        e = adiv_a - 1.0
-        return (torch.exp(e * lu) - 1.0) / e
-    raise ValueError(f"unknown / non-scalar key {key!r}")
+        base = lu + 1.0
+    elif key == "rkl":                    # −1/u
+        base = -inv_u
+    elif key == "chi2":                   # 2(u − 1)
+        base = 2.0 * (torch.exp(lu) - 1.0)
+    elif key == "hel":                    # 1 − u^(−1/2)
+        base = 1.0 - torch.exp(-0.5 * lu)
+    elif key == "js":                     # ln(2u/(1+u)) = ln2 + ln u − log1p(u)
+        base = LN2 + lu - torch.log1p(torch.exp(lu))
+    elif key == "adiv":                   # (u^(a−1) − 1)/(a − 1)
+        base = (torch.exp((adiv_a - 1.0) * lu) - 1.0) / (adiv_a - 1.0)
+    else:
+        raise ValueError(f"unknown / non-scalar key {key!r}")
+    return base + KLN_SHIFT[key] if kln else base             # f'_kln = f' + s
 
 
 def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
@@ -80,7 +89,7 @@ def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
 
 def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
             adiv_a: float = DEFAULT_ADIV_A, chunk: int = 256,
-            dtype: torch.dtype = torch.float64) -> torch.Tensor:
+            dtype: torch.dtype = torch.float64, kln: bool = False) -> torch.Tensor:
     """Closed-form inner term C_Ω(π_θ(·|s)) = Σ_a π_θ(a)·Φ(u_a), summed over the FULL vocab.
     log_pi, log_ref: full-vocab log-probs, shape [T, V]. Returns [T] (per position).
     RKL comes out exactly 1 by arithmetic; euc uses its own Bregman form.
@@ -100,4 +109,5 @@ def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
             outs.append((pi * d).sum(-1) - 0.5 * (d * d).sum(-1))
         else:
             outs.append((pi * phi_from_logu(key, lp - lr, adiv_a)).sum(-1))
-    return torch.cat(outs)
+    C = torch.cat(outs)
+    return C + KLN_SHIFT[key] if (kln and key != "euc") else C   # C_kln = C + s (since E_π[1/u]=1)

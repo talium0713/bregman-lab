@@ -51,9 +51,10 @@ from divergences import (KEYS, SHORT, DEFAULT_ADIV_A,
 # with no model or GPU. Position t predicts token t+1; we score positions whose predicted token
 # is a completion (response) token.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp):
+def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False):
     """S(τ) = β Σ_t[f'(u_t) − C_Ω(s_t)] over completion tokens. Differentiable in lg_pol.
-    lg_pol, lg_ref : [T, V] raw logits.  ids : [T].  comp : [T] bool (True on response tokens)."""
+    lg_pol, lg_ref : [T, V] raw logits.  ids : [T].  comp : [T] bool (True on response tokens).
+    kln=True applies the KL-normalization (f'(1)=1) to the f-divergence (not euc)."""
     lp, lr = lg_pol[:-1], lg_ref[:-1]                 # [T-1, V]: row t predicts token t+1
     tgt = ids[1:]                                     # realized next tokens
     m = comp[1:].to(lp.dtype)                         # score where the predicted token is response
@@ -77,12 +78,12 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
             inner_c = exact_C("euc", torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
                               adiv_a, dtype=lp.dtype)
     else:
-        chosen = fprime_from_logu(key, log_u, adiv_a)
+        chosen = fprime_from_logu(key, log_u, adiv_a, kln=kln)
         if inner == "sample":
-            inner_c = phi_from_logu(key, log_u, adiv_a)
+            inner_c = phi_from_logu(key, log_u, adiv_a, kln=kln)
         else:                                         # exact vocab sum (fp32 for training)
             inner_c = exact_C(key, torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
-                              adiv_a, dtype=lp.dtype)
+                              adiv_a, dtype=lp.dtype, kln=kln)
     return beta * ((chosen - inner_c) * m).sum()
 
 
@@ -189,17 +190,17 @@ def _logits(model, ids):
     return model(ids.unsqueeze(0).to("cuda")).logits[0].float()      # [T, V] fp32
 
 
-def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp):
+def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln=False):
     (iw, cw), (il, cl) = enc
     with torch.no_grad():
         rw, rl = _logits(ref, iw), _logits(ref, il)
-    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp)
-    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp)
+    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln)
+    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln)
     return Sw, Sl
 
 
 @torch.no_grad()
-def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n):
+def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False):
     policy.eval()
     acc = tot = 0
     margins = []
@@ -207,7 +208,7 @@ def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw,
         enc = encode_pair(tok, ex, max_len, kw)
         if enc is None:
             continue
-        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp)
+        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln)
         acc += int(Sw.item() > Sl.item()); tot += 1; margins.append(Sw.item() - Sl.item())
     policy.train()
     return {"eval_acc": acc / max(tot, 1), "eval_margin": float(np.mean(margins)) if margins else 0.0,
@@ -228,6 +229,7 @@ def main():
     ap.add_argument("--grad-accum", type=int, default=8, help="pairs per optimizer step")
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
+    ap.add_argument("--kln", action="store_true", help="KL-normalize the generator (f'(1)=1); no freeze from π_ref init. Not for euc.")
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
     ap.add_argument("--eval-frac", type=float, default=0.05)
@@ -244,6 +246,8 @@ def main():
     torch.manual_seed(args.seed)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     clamp = args.clamp if args.clamp and args.clamp > 0 else None
+    if args.kln and args.div == "euc":
+        raise SystemExit("euc is excluded from kln (Bregman, no f(u) generator) — drop --kln or --div euc")
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.policy or args.ref)
@@ -272,8 +276,8 @@ def main():
 
     hist = []
     t0 = time.time()
-    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} beta={args.beta} lr={args.lr} "
-          f"steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
+    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} beta={args.beta} "
+          f"lr={args.lr} steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)
         losses, accs = [], []
@@ -282,7 +286,7 @@ def main():
             enc = encode_pair(tok, next(it), args.max_len, kw)
             if enc is None:
                 continue
-            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp)
+            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, args.kln)
             loss = -F.logsigmoid(Sw - Sl)
             if not torch.isfinite(loss):
                 print(f"[warn] non-finite loss at step {step} — skipping this pair"); continue
@@ -295,7 +299,7 @@ def main():
             rec = {"step": step, "loss": float(np.mean(losses)), "train_acc": float(np.mean(accs)),
                    "grad_norm": gnorm, "sec": round(time.time() - t0, 1)}
             rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
-                                args.adiv_a, clamp, args.max_len, kw, args.eval_n))
+                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln))
             hist.append(rec)
             print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
                   f"eval_acc {rec['eval_acc']:.3f}  margin {rec['eval_margin']:+.3f}  |g| {gnorm:.2f}  "
