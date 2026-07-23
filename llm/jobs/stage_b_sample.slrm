@@ -27,8 +27,9 @@ cd "$REPO/llm"
 
 DIVS=(kl adiv rkl js hel chi2)          # euc has no single-sample inner term -> excluded here
 DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²" [euc]=Euc)   # key->display (kl=reverse-KL, rkl=forward-KL)
 
-echo "=== Stage B single-sample div=$DIV on $(hostname) | $(date) ==="; nvidia-smi
+echo "=== Stage B single-sample Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
 
 python stage_b_train.py \
   --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \

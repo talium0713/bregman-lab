@@ -268,7 +268,7 @@ def main():
 
     hist = []
     t0 = time.time()
-    print(f"=== Stage B: div={args.div} inner={args.inner} beta={args.beta} lr={args.lr} "
+    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} beta={args.beta} lr={args.lr} "
           f"steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)

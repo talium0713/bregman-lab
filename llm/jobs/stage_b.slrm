@@ -34,8 +34,9 @@ DIVS=(kl   kl    adiv adiv  rkl  rkl   js   js    hel  hel   chi2 chi2  euc)
 ARMS=(sample exact sample exact sample exact sample exact sample exact sample exact exact)
 i=$((SLURM_ARRAY_TASK_ID - 1))
 DIV="${DIVS[$i]}"; ARM="${ARMS[$i]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²" [euc]=Euc)   # key->display (kl=reverse-KL, rkl=forward-KL)
 
-echo "=== Stage B  div=$DIV  inner=$ARM  on $(hostname) | $(date) ==="; nvidia-smi
+echo "=== Stage B  Ω=${SHOW[$DIV]} (key $DIV)  inner=$ARM  on $(hostname) | $(date) ==="; nvidia-smi
 
 python stage_b_train.py \
   --ref Qwen/Qwen3-1.7B-Base \
