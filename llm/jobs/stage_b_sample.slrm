@@ -1,0 +1,40 @@
+#!/bin/bash
+# Stage B — single-sample sweep from the SFT init (pi_ref = base, pi_theta = lightly-SFT'd base, so
+# u != 1 at init -> the single-sample score has a nonzero gradient, no f'(1)=0 freeze). 6 f-divergences,
+# single-sample inner term, TUNED (lr up, grad-clip relaxed, ~1 epoch). Run AFTER sft_base.slrm.
+# Submit FROM llm/:  sbatch jobs/stage_b_sample.slrm
+#   (or chain: sbatch --dependency=afterok:<sft_jobid> jobs/stage_b_sample.slrm)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBs
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-6
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)          # euc has no single-sample inner term -> excluded here
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+
+echo "=== Stage B single-sample div=$DIV on $(hostname) | $(date) ==="; nvidia-smi
+
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --div "$DIV" --inner sample \
+  --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
+  --eval-n 128 --seed 0 \
+  --out "results/stageB_${DIV}_sample_sft1p7b"
+
+echo "=== done div=$DIV | $(date) ==="

@@ -223,6 +223,7 @@ def main():
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
+    ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
     ap.add_argument("--eval-frac", type=float, default=0.05)
     ap.add_argument("--eval-n", type=int, default=128)
     ap.add_argument("--log-every", type=int, default=25)
@@ -283,7 +284,7 @@ def main():
                 print(f"[warn] non-finite loss at step {step} — skipping this pair"); continue
             (loss / args.grad_accum).backward()
             losses.append(loss.item()); accs.append(int(Sw.item() > Sl.item())); got += 1
-        gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0).item()
+        gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
         opt.step()
 
         if step % args.log_every == 0 or step == 1:

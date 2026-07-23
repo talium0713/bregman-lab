@@ -1,0 +1,34 @@
+#!/bin/bash
+# Light SFT of Qwen3-1.7B-Base on the chosen responses -> pi_theta_init for the Stage B single-sample
+# sweep (pi_ref stays the frozen base; SFT moves pi_theta so u != 1 -> no init-freeze). 1x L40S.
+# Submit FROM llm/:  sbatch jobs/sft_base.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sftbase
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=2:00:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+echo "=== light SFT on $(hostname) | $(date) ==="; nvidia-smi
+
+python sft_base.py --model Qwen/Qwen3-1.7B-Base --data data/uf_pairs_train.jsonl \
+  --steps 500 --lr 1e-5 --grad-accum 8 --max-len 768 --out results/sft_1p7b
+
+# verify the SFT actually moved pi_theta off the base (u should spread; min_u << 1)
+python stage_a_measure.py --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --data data/uf_pairs_test.jsonl --max-samples 200 --max-len 768 --out results/sft_offpolicy_check
+
+echo "=== done | $(date) ==="
