@@ -55,6 +55,9 @@ def main():
         raise SystemExit(f"no stageB_*_{args.tag}.json found in {args.dir}/")
     out = args.out or os.path.join(args.dir, f"stageB_{args.tag}")
     order = [k for k in KEYS if k in runs]                 # canonical divergence order
+    arms = set().union(*(set(runs[k]) for k in runs))
+    paired = "exact" in arms and "sample" in arms          # both arms → exact-vs-sample; else grad-noise panel
+    arm = "sample" if "sample" in arms else "exact"        # the arm for the single-arm (right) panel
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 5.2))
 
@@ -69,31 +72,48 @@ def main():
                      zorder=9 if k == "kl" else 3)
     axL.axhline(0.5, color="0.7", ls=":", lw=1)
     axL.set_xlabel("training step"); axL.set_ylabel("held-out preference accuracy")
-    axL.set_title("learning curves  ·  solid = exact inner term, dashed = single-sample")
     handles = [Line2D([0], [0], color=COLORS[k], lw=2.6 if k == "kl" else 1.8, label=SHORT[k]) for k in order]
-    handles += [Line2D([0], [0], color="0.35", ls="-", label="exact"),
-                Line2D([0], [0], color="0.35", ls=SAMPLE_LS, label="single-sample")]
+    if paired:
+        axL.set_title("learning curves  ·  solid = exact inner term, dashed = single-sample")
+        handles += [Line2D([0], [0], color="0.35", ls="-", label="exact"),
+                    Line2D([0], [0], color="0.35", ls=SAMPLE_LS, label="single-sample")]
+    else:
+        axL.set_title(f"learning curves  ·  {arm} inner term  (only RKL rises; others stay ≈ 0.5)")
     axL.legend(handles=handles, ncol=2, fontsize=7.5, framealpha=0.9)
 
-    # ── Right: final accuracy, exact vs single-sample per divergence (the headline gap) ──
-    x = np.arange(len(order)); w = 0.38
-    ex = [_final(runs[k].get("exact", []), "eval_acc") for k in order]
-    sa = [_final(runs[k].get("sample", []), "eval_acc") for k in order]
-    axR.bar(x - w / 2, ex, w, color=[COLORS[k] for k in order], edgecolor="#222", linewidth=0.5)
-    axR.bar(x + w / 2, sa, w, color=[COLORS[k] for k in order], alpha=0.4, hatch="///", edgecolor="#222", linewidth=0.5)
-    for xi, e, s in zip(x, ex, sa):                        # annotate the exact−sample gap (noise cost)
-        if np.isfinite(e) and np.isfinite(s) and abs(e - s) > 0.005:
-            axR.annotate(f"{e - s:+.02f}", (xi, max(e, s) + 0.01), ha="center", fontsize=7, color="#444")
-    axR.axhline(0.5, color="0.7", ls=":", lw=1)
+    x = np.arange(len(order))
+    if paired:
+        # ── Right (paired): final accuracy, exact vs single-sample per divergence ──
+        w = 0.38
+        ex = [_final(runs[k].get("exact", []), "eval_acc") for k in order]
+        sa = [_final(runs[k].get("sample", []), "eval_acc") for k in order]
+        axR.bar(x - w / 2, ex, w, color=[COLORS[k] for k in order], edgecolor="#222", linewidth=0.5)
+        axR.bar(x + w / 2, sa, w, color=[COLORS[k] for k in order], alpha=0.4, hatch="///", edgecolor="#222", linewidth=0.5)
+        for xi, e, s in zip(x, ex, sa):
+            if np.isfinite(e) and np.isfinite(s) and abs(e - s) > 0.005:
+                axR.annotate(f"{e - s:+.02f}", (xi, max(e, s) + 0.01), ha="center", fontsize=7, color="#444")
+        axR.axhline(0.5, color="0.7", ls=":", lw=1)
+        axR.set_ylabel("final held-out preference accuracy")
+        axR.set_title("exact vs single-sample  ·  RKL invariant; non-admissible pay the off-policy noise")
+        axR.legend(handles=[Patch(facecolor="0.5", edgecolor="#222", label="exact inner term"),
+                            Patch(facecolor="0.5", alpha=0.4, hatch="///", edgecolor="#222", label="single-sample")],
+                   fontsize=8, loc="lower right")
+    else:
+        # ── Right (single-arm): the off-policy inner-term NOISE itself — |∇| per divergence (§3b) ──
+        gmed = [float(np.median([r["grad_norm"] for r in runs[k][arm]])) for k in order]
+        gmax = [float(max(r["grad_norm"] for r in runs[k][arm])) for k in order]
+        axR.bar(x, gmed, 0.6, color=[COLORS[k] for k in order], edgecolor="#222", linewidth=0.5, zorder=3)
+        for xi, gm, gx in zip(x, gmed, gmax):               # whisker from median up to max (the spikes)
+            axR.plot([xi, xi], [gm, gx], color="#111", lw=0.9, zorder=4)
+        axR.scatter(x, gmax, marker="_", s=340, color="#111", zorder=5)
+        axR.set_yscale("log")
+        axR.set_ylabel(r"gradient noise  $\|\nabla\|$  per step  (bar = median, tick = max)")
+        axR.set_title(r"off-policy inner-term noise (§3b): RKL bounded, non-admissible blow up")
     axR.set_xticks(x); axR.set_xticklabels([SHORT[k] for k in order])
-    axR.set_ylabel("final held-out preference accuracy")
-    axR.set_title("exact vs single-sample  ·  RKL invariant; non-admissible pay the off-policy noise")
-    axR.legend(handles=[Patch(facecolor="0.5", edgecolor="#222", label="exact inner term"),
-                        Patch(facecolor="0.5", alpha=0.4, hatch="///", edgecolor="#222", label="single-sample")],
-               fontsize=8, loc="lower right")
 
-    fig.suptitle("Stage B · token-level f-DPO (Qwen3-1.7B, UltraFeedback) · exact vs single-sample inner term",
-                 fontsize=11, y=1.0)
+    tagname = {"sft1p7b": "SFT init · single-sample", "kln1p7b": "kln · single-sample",
+               "1p7b": "exact vs single-sample"}.get(args.tag, args.tag)
+    fig.suptitle(f"Stage B · token-level f-DPO (Qwen3-1.7B, UltraFeedback) · {tagname}", fontsize=11, y=1.0)
     fig.tight_layout(); fig.savefig(out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", out + ".png  ·  divergences:", ", ".join(SHORT[k] for k in order))
 
