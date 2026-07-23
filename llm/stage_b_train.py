@@ -19,8 +19,10 @@ DPO; `--selftest` checks this to 1e-5 on synthetic logits (no models / no GPU ne
 
 Caveats carried from the design doc:
   · χ²  — not DPO-inducing (Pipano): report separately; a χ² failure is NOT evidence for the thesis.
-  · euc — Bregman, not an f-divergence; its single-sample inner term is ill-defined (needs the
-          full-vocab Ω), so euc ALWAYS uses the exact inner term. Flagged in the output.
+  · euc — Bregman, not an f-divergence: the inner integrand h_a = (π−π_ref) − (π−π_ref)²/(2π)
+          depends on π,π_ref separately (not on u alone), so it has no Φ(u) — but it IS a valid
+          per-action expectation, so single-sample works: S = β Σ d²/(2π_θ), d=π_θ−π_ref (1/π_θ tail
+          ⇒ noise, like the f-divs; freezes at π_θ=π_ref, so it also needs the SFT init).
 
 Run (cluster, after prefetch + pair JSONL):
   python stage_b_train.py --ref Qwen/Qwen3-1.7B-Base --data data/uf_pairs_train.jsonl \
@@ -66,10 +68,14 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
     if clamp is not None:
         log_u = log_u.clamp(-clamp, clamp)            # heavy-tail guard (§4) — identical for every Ω
 
-    if key == "euc":                                  # Bregman: chosen term = π_θ(a) − π_ref(a)
-        chosen = logp_y_pol.exp() - logp_y_ref.exp()
-        inner_c = exact_C("euc", torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
-                          adiv_a, dtype=lp.dtype)     # single-sample ill-defined → exact always
+    if key == "euc":                                  # Bregman: chosen term = [∇Ω]_a = π_θ(a) − π_ref(a)
+        p_y_pol = logp_y_pol.exp()
+        chosen = p_y_pol - logp_y_ref.exp()           # d = π_θ(y) − π_ref(y)
+        if inner == "sample":                         # single-sample inner h = d − d²/(2π_θ) ⇒ S = β Σ d²/(2π_θ)
+            inner_c = chosen - chosen * chosen / (2.0 * p_y_pol.clamp_min(1e-12))   # 1/π_θ tail (guard floor)
+        else:
+            inner_c = exact_C("euc", torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
+                              adiv_a, dtype=lp.dtype)
     else:
         chosen = fprime_from_logu(key, log_u, adiv_a)
         if inner == "sample":
@@ -238,8 +244,6 @@ def main():
     torch.manual_seed(args.seed)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     clamp = args.clamp if args.clamp and args.clamp > 0 else None
-    if args.div == "euc" and args.inner == "sample":
-        print("[note] euc has no single-sample inner term (Bregman) — using the exact inner term.")
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.policy or args.ref)

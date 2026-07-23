@@ -1,8 +1,8 @@
 #!/bin/bash
 # Stage B — single-sample sweep from the SFT init (pi_ref = base, pi_theta = lightly-SFT'd base, so
 # u != 1 at init -> the single-sample score has a nonzero gradient, no f'(1)=0 freeze). Tasks 1-6 =
-# 6 f-divergences, single-sample inner term; task 7 = euc (Bregman -> single-sample ill-defined, so
-# exact inner term, a bounded control). TUNED (lr up, grad-clip relaxed, ~1 epoch). Run AFTER sft_base.slrm.
+# 6 f-divergences; task 7 = euc (Bregman; its single-sample inner term S=βΣd²/2π_θ, d=π_θ−π_ref, has a
+# 1/π_θ tail too). All single-sample. TUNED (lr up, grad-clip relaxed, ~1 epoch). Run AFTER sft_base.slrm.
 # Submit FROM llm/:  sbatch jobs/stage_b_sample.slrm
 #   just euc (if 1-6 already ran):  sbatch --array=7 jobs/stage_b_sample.slrm
 #   (or chain: sbatch --dependency=afterok:<sft_jobid> jobs/stage_b_sample.slrm)
@@ -28,7 +28,7 @@ source "$REPO/venv_gpu/bin/activate"
 cd "$REPO/llm"
 
 DIVS=(kl adiv rkl js hel chi2 euc)
-ARMS=(sample sample sample sample sample sample exact)   # euc: single-sample ill-defined (Bregman) -> exact, flagged (control)
+ARMS=(sample sample sample sample sample sample sample)  # euc now has a proper single-sample inner term too (S=βΣd²/2π_θ)
 i=$((SLURM_ARRAY_TASK_ID - 1))
 DIV="${DIVS[$i]}"; ARM="${ARMS[$i]}"
 declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²" [euc]=Euc)   # key->display (kl=reverse-KL, rkl=forward-KL)
