@@ -51,16 +51,20 @@ from divergences import (KEYS, SHORT, DEFAULT_ADIV_A,
 # with no model or GPU. Position t predicts token t+1; we score positions whose predicted token
 # is a completion (response) token.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False, step_size=1):
+def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False,
+                      step_size=1, step_ids=None):
     """S(τ) = β Σ_t[f'(u_t) − C_Ω(s_t)] over completion tokens. Differentiable in lg_pol.
     lg_pol, lg_ref : [T, V] raw logits.  ids : [T].  comp : [T] bool (True on response tokens).
     kln=True applies the KL-normalization (f'(1)=1) to the f-divergence (not euc).
 
-    step_size>1 = STEP-LEVEL: group the completion tokens into fixed-size steps and apply f'/Φ to the
-    per-step ratio u_k = Π_{t∈step} u_t = exp(Σ log u_t) — i.e. S = β Σ_k f(u_k)/u_k (single-sample).
+    STEP-LEVEL (either arg set): group the completion tokens into steps and apply f'/Φ to the per-step
+    ratio u_k = Π_{t∈step} u_t = exp(Σ log u_t) — i.e. S = β Σ_k f(u_k)/u_k (single-sample).
+      · step_size>1  : FIXED-size steps of step_size tokens (mechanism ablation, no confound).
+      · step_ids     : [n_completion] long, an explicit token→step map (e.g. newline segmentation,
+                       Step-DPO-style variable-length reasoning steps). Overrides step_size.
     Exact over the sentence action space is intractable, so step-level is single-sample only (no euc).
-    step_size=1 recovers token-level; step_size→∞ approaches sequence-level. RKL is invariant to
-    step_size (f/u=ln u is additive: Σ_k ln u_k = Σ_t log u_t = standard DPO)."""
+    token-level (step_size=1, step_ids=None) is the default; step→∞ approaches sequence-level. RKL is
+    invariant to the segmentation (f/u=ln u is additive: Σ_k ln u_k = Σ_t log u_t = standard DPO)."""
     lp, lr = lg_pol[:-1], lg_ref[:-1]                 # [T-1, V]: row t predicts token t+1
     tgt = ids[1:]                                     # realized next tokens
     m = comp[1:].to(lp.dtype)                         # score where the predicted token is response
@@ -73,17 +77,19 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
     logp_y_ref = lr.gather(-1, tgt.unsqueeze(-1)).squeeze(-1) - lse_ref
     log_u = logp_y_pol - logp_y_ref
 
-    if step_size > 1:                                 # STEP-LEVEL: aggregate completion tokens into steps
+    if step_ids is not None or step_size > 1:         # STEP-LEVEL: aggregate completion tokens into steps
         if key == "euc" or inner != "sample":
-            raise ValueError("step-level (step_size>1) supports only f-divergences with --inner sample "
+            raise ValueError("step-level supports only f-divergences with --inner sample "
                              "(the inner term over the sentence action space is intractable)")
-        lu = log_u[comp[1:].bool()]                   # completion log-ratios, in order
+        lu = log_u[comp[1:].bool()]                   # completion log-ratios, in response order
         n = lu.shape[0]
         if n == 0:
             return lg_pol.new_zeros(())
-        ks = (n + step_size - 1) // step_size
-        lu = F.pad(lu, (0, ks * step_size - n))       # pad the last step with log_u=0 (u=1, adds nothing)
-        log_u_k = lu.view(ks, step_size).sum(-1)      # [K]: step log-ratio = Σ_{t∈step} log u_t = log Π u_t
+        if step_ids is not None:                      # explicit token→step map (newline / variable steps)
+            sid = step_ids.to(lu.device)
+        else:                                         # fixed-size steps: tokens 0..n-1 → step index // step_size
+            sid = torch.arange(n, device=lu.device) // step_size
+        log_u_k = lu.new_zeros(int(sid.max()) + 1).index_add_(0, sid, lu)   # [K]: Σ_{t∈step} log u_t (differentiable)
         if clamp is not None:
             log_u_k = log_u_k.clamp(-clamp, clamp)
         chosen = fprime_from_logu(key, log_u_k, adiv_a, kln=kln)
@@ -143,6 +149,15 @@ def selftest():
         d = abs(S - dpo_ref)
         print(f"  RKL step_size={ssz:<3d}: |Δ| vs standard-DPO = {d:.2e}  " + ("OK" if d < 1e-9 else "FAIL"))
         ok &= d < 1e-9
+
+    # …and to an ARBITRARY (variable-length, e.g. newline) segmentation via explicit step_ids
+    ncomp = int(comp[1:].sum())
+    raw = torch.tensor(np.sort(np.random.default_rng(7).integers(0, max(2, ncomp // 3), size=ncomp)))
+    _, sid = torch.unique(raw, return_inverse=True)                   # contiguous 0..K-1 step ids
+    S = score_from_logits(lg_pol, lg_ref, ids, comp, "kl", beta, "sample", DEFAULT_ADIV_A, None, step_ids=sid).item()
+    d = abs(S - dpo_ref)
+    print(f"  RKL newline(var-steps, K={int(sid.max())+1}): |Δ| vs standard-DPO = {d:.2e}  " + ("OK" if d < 1e-9 else "FAIL"))
+    ok &= d < 1e-9
 
     # exact_C(kl) ≡ 1 by arithmetic
     C = exact_C("kl", torch.log_softmax(lg_pol, -1), torch.log_softmax(lg_ref, -1)).sub(1).abs().max().item()
@@ -206,15 +221,37 @@ def _encode_side(tok, msgs, max_len, kw):
     return ids, comp
 
 
-def encode_pair(tok, ex, max_len, kw):
-    """One preference example {'chosen':[msgs], 'rejected':[msgs]} → ((ids_w,comp_w),(ids_l,comp_l))."""
+def _newline_step_ids(tok, ids, comp):
+    """Step-DPO-style newline segmentation → a token→step map over the completion tokens (length =
+    comp.sum(), aligned to `log_u[comp[1:]]` in score_from_logits). A step ends at a run of newline
+    tokens; the next content token opens the next step. A completion with no newline → one step (that
+    response = sequence-level). Byte-level BPE encodes '\\n' as 'Ċ'; a decoded '\\n' is the fallback."""
+    comp_ids = ids[comp].tolist()
+    if not comp_ids:
+        return torch.zeros(0, dtype=torch.long)
+    pieces = tok.convert_ids_to_tokens(comp_ids)
+    is_nl = [bool(p) and ("Ċ" in p or "\n" in p) for p in pieces]
+    sid, k = [], 0
+    for j in range(len(comp_ids)):
+        sid.append(k)
+        if is_nl[j] and (j + 1 >= len(comp_ids) or not is_nl[j + 1]):   # end of a newline run → new step
+            k += 1
+    return torch.tensor(sid, dtype=torch.long)
+
+
+def encode_pair(tok, ex, max_len, kw, step_mode="token"):
+    """One preference example {'chosen':[msgs], 'rejected':[msgs]} → ((ids_w,comp_w,sid_w),(ids_l,comp_l,sid_l)).
+    sid_* is the newline token→step map when step_mode='newline', else None (token / fixed-size steps)."""
     c, r = ex.get("chosen"), ex.get("rejected")
     if not (isinstance(c, list) and c and isinstance(r, list) and r):
         return None
-    cw, cl = _encode_side(tok, c, max_len, kw), _encode_side(tok, r, max_len, kw)
-    if cw[1].sum() == 0 or cl[1].sum() == 0:
+    (iw, cw), (il, cl) = _encode_side(tok, c, max_len, kw), _encode_side(tok, r, max_len, kw)
+    if cw.sum() == 0 or cl.sum() == 0:
         return None
-    return cw, cl
+    sw = sl = None
+    if step_mode == "newline":
+        sw, sl = _newline_step_ids(tok, iw, cw), _newline_step_ids(tok, il, cl)
+    return (iw, cw, sw), (il, cl, sl)
 
 
 def _logits(model, ids):
@@ -222,21 +259,23 @@ def _logits(model, ids):
 
 
 def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln=False, step_size=1):
-    (iw, cw), (il, cl) = enc
+    (iw, cw, sw), (il, cl, sl) = enc
     with torch.no_grad():
         rw, rl = _logits(ref, iw), _logits(ref, il)
-    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size)
-    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size)
+    sw = sw.to("cuda") if sw is not None else None
+    sl = sl.to("cuda") if sl is not None else None
+    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size, sw)
+    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size, sl)
     return Sw, Sl
 
 
 @torch.no_grad()
-def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False, step_size=1):
+def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False, step_size=1, step_mode="token"):
     policy.eval()
     acc = tot = 0
     margins = []
     for ex in ds[:n]:
-        enc = encode_pair(tok, ex, max_len, kw)
+        enc = encode_pair(tok, ex, max_len, kw, step_mode)
         if enc is None:
             continue
         Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln, step_size)
@@ -252,6 +291,8 @@ def main():
     ap.add_argument("--ref", default="Qwen/Qwen3-1.7B-Base", help="frozen reference; also the policy init")
     ap.add_argument("--policy", default=None, help="policy init (default = --ref)")
     ap.add_argument("--data", default="data/uf_pairs_train.jsonl")
+    ap.add_argument("--eval-data", default=None, help="held-out preference file for eval (e.g. the UF test_prefs split); "
+                                                      "if unset, a slice of --data is held out instead")
     ap.add_argument("--div", default="kl", choices=KEYS)
     ap.add_argument("--inner", default="sample", choices=["sample", "exact"])
     ap.add_argument("--beta", type=float, default=0.1)
@@ -261,7 +302,9 @@ def main():
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
     ap.add_argument("--kln", action="store_true", help="KL-normalize the generator (f'(1)=1); no freeze from π_ref init. Not for euc.")
-    ap.add_argument("--step-size", type=int, default=1, help="tokens per step. 1=token-level; >1=step-level (single-sample f-div only)")
+    ap.add_argument("--step-mode", default="token", choices=["token", "fixed", "newline"],
+                    help="token=token-level; fixed=--step-size tokens/step (ablation); newline=Step-DPO-style sentence steps")
+    ap.add_argument("--step-size", type=int, default=1, help="tokens per step for --step-mode fixed (>1)")
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
     ap.add_argument("--eval-frac", type=float, default=0.05)
@@ -280,8 +323,13 @@ def main():
     clamp = args.clamp if args.clamp and args.clamp > 0 else None
     if args.kln and args.div == "euc":
         raise SystemExit("euc is excluded from kln (Bregman, no f(u) generator) — drop --kln or --div euc")
-    if args.step_size > 1 and (args.div == "euc" or args.inner == "exact"):
-        raise SystemExit("step-level (--step-size>1) needs --inner sample and not euc (exact over sentences is intractable)")
+    if args.step_mode == "token" and args.step_size > 1:   # --step-size>1 alone ⇒ fixed-size steps (back-compat)
+        args.step_mode = "fixed"
+    if args.step_mode == "fixed" and args.step_size <= 1:
+        raise SystemExit("--step-mode fixed needs --step-size > 1")
+    if args.step_mode != "token" and (args.div == "euc" or args.inner == "exact"):
+        raise SystemExit("step-level (--step-mode fixed/newline) needs --inner sample and not euc "
+                         "(the exact inner term over the sentence action space is intractable)")
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.policy or args.ref)
@@ -298,8 +346,12 @@ def main():
 
     ds = [json.loads(l) for l in open(args.data) if l.strip()]
     rng = np.random.default_rng(args.seed); rng.shuffle(ds)
-    n_eval = max(args.eval_n, int(len(ds) * args.eval_frac))
-    ds_eval, ds_train = ds[:n_eval], ds[n_eval:]
+    if args.eval_data:                                # dedicated held-out split (e.g. UF test_prefs) — no train/eval overlap
+        ds_train = ds
+        ds_eval = [json.loads(l) for l in open(args.eval_data) if l.strip()]
+    else:                                             # fallback: hold out a slice of --data
+        n_eval = max(args.eval_n, int(len(ds) * args.eval_frac))
+        ds_eval, ds_train = ds[:n_eval], ds[n_eval:]
 
     def train_iter():
         while True:
@@ -312,14 +364,16 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()          # measure the TRAINING peak (exclude load transients)
     t0 = time.time()
-    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step_size={args.step_size} "
-          f"beta={args.beta} lr={args.lr} steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
+    seg = f"newline" if args.step_mode == "newline" else (f"fixed×{args.step_size}" if args.step_mode == "fixed" else "token")
+    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step={seg} "
+          f"beta={args.beta} lr={args.lr} steps={args.steps} accum={args.grad_accum} | "
+          f"train={len(ds_train)} eval={len(ds_eval)}{' ('+args.eval_data+')' if args.eval_data else ' (train-slice)'} ===")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)
         losses, accs = [], []
         got = 0
         while got < args.grad_accum:
-            enc = encode_pair(tok, next(it), args.max_len, kw)
+            enc = encode_pair(tok, next(it), args.max_len, kw, args.step_mode)
             if enc is None:
                 continue
             Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, args.kln, args.step_size)
@@ -338,7 +392,7 @@ def main():
                 rec["gpu_alloc_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
                 rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
             rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
-                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size))
+                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size, args.step_mode))
             hist.append(rec)
             print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
                   f"eval_acc {rec['eval_acc']:.3f}  margin {rec['eval_margin']:+.3f}  |g| {gnorm:.2f}  "
