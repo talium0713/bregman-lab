@@ -1,0 +1,58 @@
+#!/bin/bash
+# Stage B — granularity (segmentation) experiment: single-sample f-DPO from the SFT init, sweeping how
+# the completion is cut into "steps", with EVERYTHING else held fixed (same data, tuning, and the
+# dedicated UF test_prefs eval split). Tests the step-level thesis (Notion "Step-level Implementation"):
+#   • RKL is INVARIANT across granularity (f/u=ln u additive)
+#   • non-admissible Ω degrade / grow noisier as the step coarsens (u_k = Π of the step's token ratios)
+#
+# Grid: 6 f-divergences × 4 segmentations = 24 tasks.
+#   token   = token-level (each token its own step)          — the fine baseline
+#   s8, s64 = FIXED 8- / 64-token steps                      — confound-free mechanism knob (Appendix F)
+#   newline = Step-DPO-style sentence steps (split at '\n')  — the realistic, literature-aligned setup
+# Submit FROM llm/:  sbatch jobs/stage_b_seg.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBseg
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-24
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)          # euc excluded (step-level single-sample undefined for Bregman)
+SEGS=(token s8 s64 newline)
+NSEG=${#SEGS[@]}
+i=$((SLURM_ARRAY_TASK_ID - 1))
+DIV="${DIVS[$((i / NSEG))]}"; SEG="${SEGS[$((i % NSEG))]}"
+case "$SEG" in
+  token)   SFLAGS="--step-mode token" ;;
+  s8)      SFLAGS="--step-mode fixed --step-size 8" ;;
+  s64)     SFLAGS="--step-mode fixed --step-size 64" ;;
+  newline) SFLAGS="--step-mode newline" ;;
+esac
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")   # kl=reverse-KL, rkl=forward-KL
+
+echo "=== Stage B seg Ω=${SHOW[$DIV]} (key $DIV) seg=$SEG ($SFLAGS) on $(hostname) | $(date) ==="; nvidia-smi
+
+# SFT init + tuning identical to stage_b_sample.slrm; eval on the dedicated UF test_prefs split.
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner sample $SFLAGS \
+  --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
+  --eval-n 256 --seed 0 \
+  --out "results/stageB_${DIV}_${SEG}_seg1p7b"
+
+echo "=== done seg div=$DIV seg=$SEG | $(date) ==="
