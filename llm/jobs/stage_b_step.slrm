@@ -1,0 +1,45 @@
+#!/bin/bash
+# Stage B — step-level ablation: single-sample f-DPO at several step sizes, from the SFT init (same
+# conditions as stage_b_sample.slrm; only --step-size differs). Tests Appendix F: the off-policy noise
+# amplifies as the step (sentence) gets coarser, because u_k = prod of the step's token ratios; while
+# RKL stays invariant (f/u=ln u is additive). token-level (step_size=1) is already the sft1p7b sweep.
+# Grid: 6 f-divergences × {8, 64} = 12 tasks. Submit FROM llm/:  sbatch jobs/stage_b_step.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBstep
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-12
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)          # euc excluded (step-level single-sample undefined for Bregman)
+STEPS=(8 64)                            # step sizes; token-level (1) = the sft1p7b sweep
+NS=${#STEPS[@]}
+i=$((SLURM_ARRAY_TASK_ID - 1))
+DIV="${DIVS[$((i / NS))]}"; STEP="${STEPS[$((i % NS))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")   # kl=reverse-KL, rkl=forward-KL
+
+echo "=== Stage B step-level Ω=${SHOW[$DIV]} (key $DIV) step_size=$STEP on $(hostname) | $(date) ==="; nvidia-smi
+
+# SFT init + tuning identical to stage_b_sample.slrm; ONLY --step-size differs.
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --div "$DIV" --inner sample --step-size "$STEP" \
+  --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
+  --eval-n 128 --seed 0 \
+  --out "results/stageB_${DIV}_sample_s${STEP}_sft1p7b"
+
+echo "=== done step-level div=$DIV step_size=$STEP | $(date) ==="
