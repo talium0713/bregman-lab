@@ -43,6 +43,14 @@ def _final(hist, key, default=np.nan):
     return hist[-1].get(key, default) if hist else default
 
 
+def _smooth(y, w=9):
+    """Centered moving average (edge-padded, no lag) to de-noise the eval-acc curves."""
+    y = np.asarray(y, dtype=float)
+    if len(y) < w:
+        return y
+    return np.convolve(np.pad(y, w // 2, mode="edge"), np.ones(w) / w, mode="valid")[:len(y)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default="results")
@@ -62,22 +70,22 @@ def main():
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 5.2))
 
     # ── Left: eval-accuracy learning curves. solid = exact, dashed = single-sample ──
+    # both arms solid + smoothed; distinguished by opacity (single-sample = crisp reference, exact = faded)
     for k in order:
-        for inner, ls, lwb in (("exact", "-", 1.7), ("sample", SAMPLE_LS, 2.4)):   # sample dashed = bolder
+        for inner, alpha, z in (("exact", 0.8, 2), ("sample", 1.0, 4)):
             h = runs[k].get(inner)
             if not h:
                 continue
-            axL.plot([r["step"] for r in h], [r.get("eval_acc", np.nan) for r in h],
-                     ls=ls, color=COLORS[k], lw=lwb + (1.0 if k == "kl" else 0.0),
-                     solid_capstyle="round", dash_capstyle="round",
-                     zorder=9 if k == "kl" else 3)
+            axL.plot([r["step"] for r in h], _smooth([r.get("eval_acc", np.nan) for r in h]),
+                     color=COLORS[k], lw=3.0 if k == "kl" else 2.0, alpha=alpha,
+                     solid_capstyle="round", zorder=(z + 6) if k == "kl" else z)
     axL.axhline(0.5, color="0.7", ls=":", lw=1)
-    axL.set_xlabel("training step"); axL.set_ylabel("held-out preference accuracy")
+    axL.set_xlabel("training step"); axL.set_ylabel("held-out preference accuracy (smoothed)")
     handles = [Line2D([0], [0], color=COLORS[k], lw=2.6 if k == "kl" else 1.8, label=SHORT[k]) for k in order]
     if paired:
-        axL.set_title("learning curves  ·  solid = exact inner term, dashed = single-sample")
-        handles += [Line2D([0], [0], color="0.35", ls="-", lw=1.7, label="exact"),
-                    Line2D([0], [0], color="0.35", ls=SAMPLE_LS, lw=2.4, label="single-sample")]
+        axL.set_title("learning curves  ·  single-sample (solid) vs exact (faded, α=0.8)")
+        handles += [Line2D([0], [0], color="0.3", lw=2.4, alpha=1.0, label="single-sample"),
+                    Line2D([0], [0], color="0.3", lw=2.4, alpha=0.8, label="exact")]
     else:
         axL.set_title(f"learning curves  ·  {arm} inner term  (only RKL rises; others stay ≈ 0.5)")
     axL.legend(handles=handles, ncol=2, fontsize=7.5, framealpha=0.9)
