@@ -12,8 +12,9 @@ virtualenv --no-download "$REPO/venv_gpu"
 source "$REPO/venv_gpu/bin/activate"
 pip install --no-index --upgrade pip
 
-# hardware-tuned wheels (numpy is NOT pulled in by torch — install explicitly)
-pip install --no-index torch numpy
+# hardware-tuned wheels (numpy is NOT pulled in by torch — install explicitly).
+# matplotlib: stage_a_measure / fig_stage_b plot results; without it those scripts fail at import.
+pip install --no-index torch numpy matplotlib
 
 # Stage A needs ONLY torch + transformers (+huggingface_hub for downloads). We deliberately do NOT
 # install `datasets`/`trl` here — they pull pyarrow, which Alliance ships as a build-failing dummy
