@@ -51,10 +51,16 @@ from divergences import (KEYS, SHORT, DEFAULT_ADIV_A,
 # with no model or GPU. Position t predicts token t+1; we score positions whose predicted token
 # is a completion (response) token.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False):
+def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False, step_size=1):
     """S(τ) = β Σ_t[f'(u_t) − C_Ω(s_t)] over completion tokens. Differentiable in lg_pol.
     lg_pol, lg_ref : [T, V] raw logits.  ids : [T].  comp : [T] bool (True on response tokens).
-    kln=True applies the KL-normalization (f'(1)=1) to the f-divergence (not euc)."""
+    kln=True applies the KL-normalization (f'(1)=1) to the f-divergence (not euc).
+
+    step_size>1 = STEP-LEVEL: group the completion tokens into fixed-size steps and apply f'/Φ to the
+    per-step ratio u_k = Π_{t∈step} u_t = exp(Σ log u_t) — i.e. S = β Σ_k f(u_k)/u_k (single-sample).
+    Exact over the sentence action space is intractable, so step-level is single-sample only (no euc).
+    step_size=1 recovers token-level; step_size→∞ approaches sequence-level. RKL is invariant to
+    step_size (f/u=ln u is additive: Σ_k ln u_k = Σ_t log u_t = standard DPO)."""
     lp, lr = lg_pol[:-1], lg_ref[:-1]                 # [T-1, V]: row t predicts token t+1
     tgt = ids[1:]                                     # realized next tokens
     m = comp[1:].to(lp.dtype)                         # score where the predicted token is response
@@ -66,6 +72,24 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
     logp_y_pol = lp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1) - lse_pol
     logp_y_ref = lr.gather(-1, tgt.unsqueeze(-1)).squeeze(-1) - lse_ref
     log_u = logp_y_pol - logp_y_ref
+
+    if step_size > 1:                                 # STEP-LEVEL: aggregate completion tokens into steps
+        if key == "euc" or inner != "sample":
+            raise ValueError("step-level (step_size>1) supports only f-divergences with --inner sample "
+                             "(the inner term over the sentence action space is intractable)")
+        lu = log_u[comp[1:].bool()]                   # completion log-ratios, in order
+        n = lu.shape[0]
+        if n == 0:
+            return lg_pol.new_zeros(())
+        ks = (n + step_size - 1) // step_size
+        lu = F.pad(lu, (0, ks * step_size - n))       # pad the last step with log_u=0 (u=1, adds nothing)
+        log_u_k = lu.view(ks, step_size).sum(-1)      # [K]: step log-ratio = Σ_{t∈step} log u_t = log Π u_t
+        if clamp is not None:
+            log_u_k = log_u_k.clamp(-clamp, clamp)
+        chosen = fprime_from_logu(key, log_u_k, adiv_a, kln=kln)
+        inner_c = phi_from_logu(key, log_u_k, adiv_a, kln=kln)
+        return beta * (chosen - inner_c).sum()        # β Σ_k f(u_k)/u_k
+
     if clamp is not None:
         log_u = log_u.clamp(-clamp, clamp)            # heavy-tail guard (§4) — identical for every Ω
 
@@ -111,6 +135,13 @@ def selftest():
         d = abs(S - dpo_ref)
         print(f"  RKL {arm:6s}: S={S:+.6f}  vs standard-DPO={dpo_ref:+.6f}  |Δ|={d:.2e}  "
               + ("OK" if d < 1e-9 else "FAIL"))
+        ok &= d < 1e-9
+
+    # RKL is invariant to step_size (f/u = ln u is additive: Σ_k ln u_k = Σ_t log u_t = standard DPO)
+    for ssz in (3, 5, 100):
+        S = score_from_logits(lg_pol, lg_ref, ids, comp, "kl", beta, "sample", DEFAULT_ADIV_A, None, step_size=ssz).item()
+        d = abs(S - dpo_ref)
+        print(f"  RKL step_size={ssz:<3d}: |Δ| vs standard-DPO = {d:.2e}  " + ("OK" if d < 1e-9 else "FAIL"))
         ok &= d < 1e-9
 
     # exact_C(kl) ≡ 1 by arithmetic
@@ -190,17 +221,17 @@ def _logits(model, ids):
     return model(ids.unsqueeze(0).to("cuda")).logits[0].float()      # [T, V] fp32
 
 
-def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln=False):
+def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln=False, step_size=1):
     (iw, cw), (il, cl) = enc
     with torch.no_grad():
         rw, rl = _logits(ref, iw), _logits(ref, il)
-    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln)
-    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln)
+    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size)
+    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size)
     return Sw, Sl
 
 
 @torch.no_grad()
-def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False):
+def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False, step_size=1):
     policy.eval()
     acc = tot = 0
     margins = []
@@ -208,7 +239,7 @@ def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw,
         enc = encode_pair(tok, ex, max_len, kw)
         if enc is None:
             continue
-        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln)
+        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln, step_size)
         acc += int(Sw.item() > Sl.item()); tot += 1; margins.append(Sw.item() - Sl.item())
     policy.train()
     return {"eval_acc": acc / max(tot, 1), "eval_margin": float(np.mean(margins)) if margins else 0.0,
@@ -230,6 +261,7 @@ def main():
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
     ap.add_argument("--kln", action="store_true", help="KL-normalize the generator (f'(1)=1); no freeze from π_ref init. Not for euc.")
+    ap.add_argument("--step-size", type=int, default=1, help="tokens per step. 1=token-level; >1=step-level (single-sample f-div only)")
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
     ap.add_argument("--eval-frac", type=float, default=0.05)
@@ -248,6 +280,8 @@ def main():
     clamp = args.clamp if args.clamp and args.clamp > 0 else None
     if args.kln and args.div == "euc":
         raise SystemExit("euc is excluded from kln (Bregman, no f(u) generator) — drop --kln or --div euc")
+    if args.step_size > 1 and (args.div == "euc" or args.inner == "exact"):
+        raise SystemExit("step-level (--step-size>1) needs --inner sample and not euc (exact over sentences is intractable)")
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.policy or args.ref)
@@ -278,8 +312,8 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()          # measure the TRAINING peak (exclude load transients)
     t0 = time.time()
-    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} beta={args.beta} "
-          f"lr={args.lr} steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
+    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step_size={args.step_size} "
+          f"beta={args.beta} lr={args.lr} steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)
         losses, accs = [], []
@@ -288,7 +322,7 @@ def main():
             enc = encode_pair(tok, next(it), args.max_len, kw)
             if enc is None:
                 continue
-            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, args.kln)
+            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, args.kln, args.step_size)
             loss = -F.logsigmoid(Sw - Sl)
             if not torch.isfinite(loss):
                 print(f"[warn] non-finite loss at step {step} — skipping this pair"); continue
@@ -304,7 +338,7 @@ def main():
                 rec["gpu_alloc_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
                 rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
             rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
-                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln))
+                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size))
             hist.append(rec)
             print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
                   f"eval_acc {rec['eval_acc']:.3f}  margin {rec['eval_margin']:+.3f}  |g| {gnorm:.2f}  "
