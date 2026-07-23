@@ -368,6 +368,13 @@ def main():
     print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step={seg} "
           f"beta={args.beta} lr={args.lr} steps={args.steps} accum={args.grad_accum} | "
           f"train={len(ds_train)} eval={len(ds_eval)}{' ('+args.eval_data+')' if args.eval_data else ' (train-slice)'} ===")
+    if args.step_mode == "newline":                   # sanity: confirm the tokenizer's newline splitting fired
+        e0 = encode_pair(tok, ds_train[0], args.max_len, kw, "newline")
+        if e0 is not None:
+            (_, cw, sw), (_, cl, sl) = e0
+            nsw = int(sw.max()) + 1 if sw is not None and len(sw) else 0
+            print(f"  [newline] example 0: chosen {nsw} steps / {int(cw.sum())} tok  "
+                  f"(≈1 step ⇒ '\\n' not detected — check tokenizer)")
     for step in range(1, args.steps + 1):
         opt.zero_grad(set_to_none=True)
         losses, accs = [], []
