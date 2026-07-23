@@ -275,6 +275,8 @@ def main():
     it = train_iter()
 
     hist = []
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()          # measure the TRAINING peak (exclude load transients)
     t0 = time.time()
     print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} beta={args.beta} "
           f"lr={args.lr} steps={args.steps} accum={args.grad_accum} | train={len(ds_train)} eval={len(ds_eval)} ===")
@@ -298,12 +300,15 @@ def main():
         if step % args.log_every == 0 or step == 1:
             rec = {"step": step, "loss": float(np.mean(losses)), "train_acc": float(np.mean(accs)),
                    "grad_norm": gnorm, "sec": round(time.time() - t0, 1)}
+            if torch.cuda.is_available():             # cost of the inner-term arm: peak GPU memory
+                rec["gpu_alloc_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+                rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
             rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
                                 args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln))
             hist.append(rec)
             print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
                   f"eval_acc {rec['eval_acc']:.3f}  margin {rec['eval_margin']:+.3f}  |g| {gnorm:.2f}  "
-                  f"{rec['sec']:.0f}s")
+                  f"{rec['sec']:.0f}s  mem {rec.get('gpu_reserved_gb', '?')}G")
             with open(args.out + ".json", "w") as f:
                 json.dump({"args": vars(args), "history": hist}, f, indent=2)
 
