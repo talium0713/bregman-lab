@@ -40,7 +40,7 @@ python stage_b_train.py \
   --div "$DIV" --inner sample --step-mode token \
   --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
   --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
-  --eval-n 256 --seed 0 \
+  --eval-n 256 --seed 0 --save-policy \
   --out "results/stageB_${DIV}_match1p7b"
 
 echo "=== done matched div=$DIV | $(date) ==="
