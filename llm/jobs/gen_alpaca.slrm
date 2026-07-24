@@ -8,7 +8,7 @@
 #SBATCH --account=aip-rudner
 #SBATCH --job-name=genalpaca
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --array=0-6
+#SBATCH --array=0-12
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=4:00:00
@@ -30,8 +30,10 @@ declare -A SHOW=([kl]=RKL [adiv]=alphadiv [rkl]=FKL [js]=JS [hel]=Hel [chi2]=chi
 i=$SLURM_ARRAY_TASK_ID
 if [ "$i" -eq 0 ]; then                          # task 0 = SFT baseline (the reference for win rate)
   MODEL="results/sft_uc_1p7b_model"; GEN="sft_base"; OUT="results/alpaca_sft_base.json"
-else
+elif [ "$i" -le 6 ]; then                        # tasks 1-6 = matched TOKEN-level policies (stage_b_match)
   DIV="${DIVS[$((i - 1))]}"; MODEL="results/stageB_${DIV}_match1p7b_policy"; GEN="${SHOW[$DIV]}"; OUT="results/alpaca_${DIV}.json"
+else                                             # tasks 7-12 = NEWLINE-level policies (stage_b_seg, same recipe)
+  DIV="${DIVS[$((i - 7))]}"; MODEL="results/stageB_${DIV}_newline_match1p7b_policy"; GEN="${SHOW[$DIV]}-newline"; OUT="results/alpaca_${DIV}_newline.json"
 fi
 
 echo "=== gen AlpacaEval [$GEN] from $MODEL on $(hostname) | $(date) ==="; nvidia-smi
@@ -39,11 +41,8 @@ python gen_alpaca.py --model "$MODEL" --prompts data/alpaca_eval.jsonl --generat
 echo "=== done $GEN -> $OUT | $(date) ==="
 
 # ─── Stage 2 (run on your Mac, NOT the cluster — needs internet + a judge API) ───────────────
+# scp results/alpaca_*.json back to the Mac, then:
 #   pip install alpaca-eval
 #   export OPENAI_API_KEY=sk-...
-#   for d in kl adiv rkl js hel chi2; do
-#     alpaca_eval --model_outputs results/alpaca_${d}.json \
-#                 --reference_outputs results/alpaca_sft_base.json \
-#                 --annotators_config weighted_alpaca_eval_gpt4_turbo --output_path results/ae_${d}
-#   done
-# win rate (candidate vs SFT baseline) is in each results/ae_${d}/ leaderboard.
+#   bash run_alpaca_judge.sh        # judges all 12 candidates (6 token + 6 newline) vs the SFT baseline
+# win rate (candidate vs SFT baseline) for token AND newline lands in the printed summary table.
