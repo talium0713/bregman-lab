@@ -1,6 +1,7 @@
 #!/bin/bash
-# Stage B — granularity (segmentation) experiment: single-sample f-DPO from the SFT init, sweeping how
-# the completion is cut into "steps", with EVERYTHING else held fixed (same data, tuning, and the
+# Stage B — granularity (segmentation) experiment: single-sample f-DPO from the standard-DPO init
+# (pi_ref = pi_theta_init = UltraChat SFT model + --init-noise to break the u=1 freeze), sweeping how
+# the completion is cut into "steps", with EVERYTHING else held fixed (same init, data, tuning, and the
 # dedicated UF test_prefs eval split). Tests the step-level thesis (Notion "Step-level Implementation"):
 #   • RKL is INVARIANT across granularity (f/u=ln u additive)
 #   • non-admissible Ω degrade / grow noisier as the step coarsens (u_k = Π of the step's token ratios)
@@ -9,7 +10,8 @@
 #   token   = token-level (each token its own step)          — the fine baseline
 #   s8, s64 = FIXED 8- / 64-token steps                      — confound-free mechanism knob (Appendix F)
 #   newline = Step-DPO-style sentence steps (split at '\n')  — the realistic, literature-aligned setup
-# Submit FROM llm/:  sbatch jobs/stage_b_seg.slrm
+# Needs results/sft_uc_1p7b_model (jobs/sft_ultrachat.slrm). Submit FROM llm/ (depend on the SFT job):
+#   sbatch --dependency=afterok:<sftuc_jobid> jobs/stage_b_seg.slrm
 #
 #SBATCH --account=aip-rudner
 #SBATCH --job-name=stageBseg
@@ -46,9 +48,11 @@ declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ
 
 echo "=== Stage B seg Ω=${SHOW[$DIV]} (key $DIV) seg=$SEG ($SFLAGS) on $(hostname) | $(date) ==="; nvidia-smi
 
-# SFT init + tuning identical to stage_b_sample.slrm; eval on the dedicated UF test_prefs split.
+# STANDARD-DPO convention (same as stage_b_match): pi_ref = pi_theta_init = the UltraChat SFT model
+# (u=1 at init), with --init-noise breaking the u=1 freeze so non-admissible single-sample can move.
+# The lighter tuning (lr 1e-6, batch 8) is the mechanism-study operating point; eval on UF test_prefs.
 python stage_b_train.py \
-  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 \
   --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
   --div "$DIV" --inner sample $SFLAGS \
   --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
