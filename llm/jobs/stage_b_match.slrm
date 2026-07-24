@@ -33,11 +33,14 @@ declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ
 echo "=== Stage B MATCHED Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
 
 # arXiv:2512.00778 Qwen3-1.7B DPO recipe: beta 0.1, lr 5e-5 linear + 5% warmup, effective batch 512,
-# 2 epochs, weight decay 0.01, AdamW beta2 0.999, grad clip 1, UltraChat SFT init, full UltraFeedback.
+# 2 epochs, weight decay 0.01, AdamW beta2 0.999, grad clip 1, full UltraFeedback.
+# STANDARD DPO: pi_ref = pi_theta_init = the UltraChat SFT model (u=1 at init). A one-time init-noise
+# perturbation breaks the u=1 degeneracy so non-admissible single-sample can move (f'(1)=0 would freeze
+# it); RKL is insensitive to it, so RKL still reproduces their standard-DPO number.
 python stage_b_train.py \
-  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_uc_1p7b_model \
+  --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model \
   --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
-  --div "$DIV" --inner sample --step-mode token \
+  --div "$DIV" --inner sample --step-mode token --init-noise 0.01 \
   --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
   --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
   --eval-n 256 --seed 0 --save-policy \

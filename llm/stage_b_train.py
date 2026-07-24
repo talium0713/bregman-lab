@@ -312,6 +312,11 @@ def main():
     ap.add_argument("--step-size", type=int, default=1, help="tokens per step for --step-mode fixed (>1)")
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
+    ap.add_argument("--init-noise", type=float, default=0.0,
+                    help="one-time ε perturbation of the policy init (fraction of each weight tensor's std) so u_init≠1 "
+                         "when π_θ=π_ref (standard-DPO init); breaks the f'(1)=0 freeze of non-admissible single-sample")
+    ap.add_argument("--grad-noise", type=float, default=0.0,
+                    help="SGLD-style decaying gradient noise σ_t=grad_noise/(1+t)^0.55 (saddle-escape at u=1); tune small")
     ap.add_argument("--eval-frac", type=float, default=0.05)
     ap.add_argument("--eval-n", type=int, default=128)
     ap.add_argument("--log-every", type=int, default=25)
@@ -347,6 +352,12 @@ def main():
 
     ref = load_model(args.ref, train=False)
     policy = load_model(args.policy or args.ref, train=True)
+    if args.init_noise > 0:                            # break the u=1 degeneracy of the standard-DPO init (π_θ=π_ref):
+        torch.manual_seed(args.seed + 1)               # one-time ε weight perturbation so u_init≠1 (else non-admissible
+        with torch.no_grad():                          # single-sample freezes, g'(1)=f'(1)=0). RKL is insensitive to it (control).
+            for p in policy.parameters():
+                if p.dim() >= 2:                       # perturb weight matrices only (not norms/biases)
+                    p.add_(torch.randn_like(p) * (args.init_noise * p.float().std()))
     opt = torch.optim.AdamW(policy.parameters(), lr=args.lr, betas=(0.9, args.adam_beta2),
                             weight_decay=args.weight_decay)
 
@@ -385,6 +396,8 @@ def main():
           f"β2={args.adam_beta2} steps={args.steps}{f'(={args.epochs}ep)' if args.epochs else ''} accum={args.grad_accum} "
           f"clip={args.grad_clip} | train={len(ds_train)} eval={len(ds_eval)}"
           f"{' ('+args.eval_data+')' if args.eval_data else ' (train-slice)'} ===")
+    if args.init_noise or args.grad_noise:
+        print(f"    (u=1 freeze-escape: init_noise={args.init_noise} grad_noise={args.grad_noise})")
     if args.step_mode == "newline":                   # sanity: confirm the tokenizer's newline splitting fired
         e0 = encode_pair(tok, ds_train[0], args.max_len, kw, "newline")
         if e0 is not None:
@@ -406,6 +419,11 @@ def main():
                 print(f"[warn] non-finite loss at step {step} — skipping this pair"); continue
             (loss / args.grad_accum).backward()
             losses.append(loss.item()); accs.append(int(Sw.item() > Sl.item())); got += 1
+        if args.grad_noise > 0:                       # SGLD-style decaying gradient noise: kicks θ off the u=1 critical point
+            sigma = args.grad_noise / (1.0 + step) ** 0.55
+            for p in policy.parameters():
+                if p.grad is not None:
+                    p.grad.add_(torch.randn_like(p.grad) * sigma)
         gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
         opt.step()
         if sched is not None:
