@@ -48,15 +48,23 @@ declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ
 
 echo "=== Stage B seg Ω=${SHOW[$DIV]} (key $DIV) seg=$SEG ($SFLAGS) on $(hostname) | $(date) ==="; nvidia-smi
 
+# Background GPU-util logger: the one-shot nvidia-smi above only catches the idle load moment; this
+# records util/mem every 30 s to a CSV you can `tail -f logs/gpu-*.csv` for live GPU activity.
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
+  > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
+SMI_PID=$!
+
 # STANDARD-DPO convention (same as stage_b_match): pi_ref = pi_theta_init = the UltraChat SFT model
 # (u=1 at init), with --init-noise breaking the u=1 freeze so non-admissible single-sample can move.
 # The lighter tuning (lr 1e-6, batch 8) is the mechanism-study operating point; eval on UF test_prefs.
+# --log-every 5 = frequent loss/|g| lines; --eval-every 50 keeps the expensive held-out eval rare.
 python stage_b_train.py \
   --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 \
   --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
   --div "$DIV" --inner sample $SFLAGS \
   --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
-  --eval-n 256 --seed 0 \
+  --eval-n 256 --log-every 5 --eval-every 50 --seed 0 \
   --out "results/stageB_${DIV}_${SEG}_seg1p7b"
 
+kill "$SMI_PID" 2>/dev/null || true
 echo "=== done seg div=$DIV seg=$SEG | $(date) ==="

@@ -320,6 +320,8 @@ def main():
     ap.add_argument("--eval-frac", type=float, default=0.05)
     ap.add_argument("--eval-n", type=int, default=128)
     ap.add_argument("--log-every", type=int, default=25)
+    ap.add_argument("--eval-every", type=int, default=0,
+                    help="run held-out eval every N steps (0 = every --log-every); set larger to log loss/|g| often but eval rarely")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="results/stageB")
     ap.add_argument("--save-policy", action="store_true", help="save the trained policy at the end")
@@ -429,18 +431,20 @@ def main():
         if sched is not None:
             sched.step()
 
-        if step % args.log_every == 0 or step == 1:
+        if step % args.log_every == 0 or step == 1 or step == args.steps:
             rec = {"step": step, "loss": float(np.mean(losses)), "train_acc": float(np.mean(accs)),
                    "grad_norm": gnorm, "sec": round(time.time() - t0, 1)}
             if torch.cuda.is_available():             # cost of the inner-term arm: peak GPU memory
                 rec["gpu_alloc_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
                 rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
-            rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
-                                args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size, args.step_mode))
+            eval_every = args.eval_every if args.eval_every > 0 else args.log_every
+            if step % eval_every == 0 or step == 1 or step == args.steps:   # eval is the expensive part — decoupled from logging
+                rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
+                                    args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size, args.step_mode))
             hist.append(rec)
+            ev = f"eval_acc {rec['eval_acc']:.3f} margin {rec['eval_margin']:+.3f}  " if "eval_acc" in rec else ""
             print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
-                  f"eval_acc {rec['eval_acc']:.3f}  margin {rec['eval_margin']:+.3f}  |g| {gnorm:.2f}  "
-                  f"{rec['sec']:.0f}s  mem {rec.get('gpu_reserved_gb', '?')}G")
+                  f"{ev}|g| {gnorm:.2f}  {rec['sec']:.0f}s  mem {rec.get('gpu_reserved_gb', '?')}G")
             with open(args.out + ".json", "w") as f:
                 json.dump({"args": vars(args), "history": hist}, f, indent=2)
 
