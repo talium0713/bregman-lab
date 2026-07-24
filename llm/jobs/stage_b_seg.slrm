@@ -1,25 +1,19 @@
 #!/bin/bash
-# Stage B — granularity (segmentation) experiment: single-sample f-DPO from the standard-DPO init
-# (pi_ref = pi_theta_init = UltraChat SFT model + --init-noise to break the u=1 freeze), sweeping how
-# the completion is cut into "steps", with EVERYTHING else held fixed (same init, data, tuning, and the
-# dedicated UF test_prefs eval split). Tests the step-level thesis (Notion "Step-level Implementation"):
-#   • RKL is INVARIANT across granularity (f/u=ln u additive)
-#   • non-admissible Ω degrade / grow noisier as the step coarsens (u_k = Π of the step's token ratios)
-#
-# Grid: 6 f-divergences × 4 segmentations = 24 tasks.
-#   token   = token-level (each token its own step)          — the fine baseline
-#   s8, s64 = FIXED 8- / 64-token steps                      — confound-free mechanism knob (Appendix F)
-#   newline = Step-DPO-style sentence steps (split at '\n')  — the realistic, literature-aligned setup
-# Needs results/sft_uc_1p7b_model (jobs/sft_ultrachat.slrm). Submit FROM llm/ (depend on the SFT job):
-#   sbatch --dependency=afterok:<sftuc_jobid> jobs/stage_b_seg.slrm
+# Stage B — granularity experiment (token -> newline) at the MATCHED recipe. Runs newline-segmented
+# single-sample f-DPO for the 6 divergences using the SAME standard-DPO recipe as stage_b_match
+# (arXiv:2512.00778 Qwen3-1.7B). Paired with the token-level matched runs (stageB_{div}_match1p7b) this
+# is a clean 2-point granularity comparison token -> newline per divergence, at ONE operating point
+# (no recipe confound): RKL invariant, non-admissible noisier at the coarser (sentence) newline steps.
+# Needs results/sft_uc_1p7b_model + data/uf_pairs_train_full.jsonl. Submit FROM llm/:
+#   sbatch jobs/stage_b_seg.slrm
 #
 #SBATCH --account=aip-rudner
 #SBATCH --job-name=stageBseg
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --array=1-24
+#SBATCH --array=1-6
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=48G
-#SBATCH --time=6:00:00
+#SBATCH --mem=64G
+#SBATCH --time=18:00:00
 #SBATCH --output=logs/%x-%A_%a.out
 
 set -euo pipefail
@@ -33,38 +27,27 @@ module load StdEnv/2023 python/3.11 cuda/12.2
 source "$REPO/venv_gpu/bin/activate"
 cd "$REPO/llm"
 
-DIVS=(kl adiv rkl js hel chi2)          # euc excluded (step-level single-sample undefined for Bregman)
-SEGS=(token s8 s64 newline)
-NSEG=${#SEGS[@]}
-i=$((SLURM_ARRAY_TASK_ID - 1))
-DIV="${DIVS[$((i / NSEG))]}"; SEG="${SEGS[$((i % NSEG))]}"
-case "$SEG" in
-  token)   SFLAGS="--step-mode token" ;;
-  s8)      SFLAGS="--step-mode fixed --step-size 8" ;;
-  s64)     SFLAGS="--step-mode fixed --step-size 64" ;;
-  newline) SFLAGS="--step-mode newline" ;;
-esac
-declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")   # kl=reverse-KL, rkl=forward-KL
+DIVS=(kl adiv rkl js hel chi2)          # kl=reverse-KL (their DPO), rkl=forward-KL
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")
 
-echo "=== Stage B seg Ω=${SHOW[$DIV]} (key $DIV) seg=$SEG ($SFLAGS) on $(hostname) | $(date) ==="; nvidia-smi
+echo "=== Stage B seg (newline · matched recipe) Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
 
-# Background GPU-util logger: the one-shot nvidia-smi above only catches the idle load moment; this
-# records util/mem every 30 s to a CSV you can `tail -f logs/gpu-*.csv` for live GPU activity.
+# background GPU-util logger -> logs/gpu-<jobid>.csv (tail -f for live util over time)
 nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
   > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
 SMI_PID=$!
 
-# STANDARD-DPO convention (same as stage_b_match): pi_ref = pi_theta_init = the UltraChat SFT model
-# (u=1 at init), with --init-noise breaking the u=1 freeze so non-admissible single-sample can move.
-# The lighter tuning (lr 1e-6, batch 8) is the mechanism-study operating point; eval on UF test_prefs.
-# --log-every 5 = frequent loss/|g| lines; --eval-every 50 keeps the expensive held-out eval rare.
+# SAME recipe as stage_b_match (arXiv:2512.00778 Qwen3-1.7B DPO); ONLY --step-mode newline differs.
+# The token-level point of the granularity comparison = the stage_b_match runs (stageB_{div}_match1p7b).
 python stage_b_train.py \
   --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 \
-  --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
-  --div "$DIV" --inner sample $SFLAGS \
-  --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
-  --eval-n 256 --log-every 5 --eval-every 50 --seed 0 \
-  --out "results/stageB_${DIV}_${SEG}_seg1p7b"
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner sample --step-mode newline \
+  --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/stageB_${DIV}_newline_match1p7b"
 
 kill "$SMI_PID" 2>/dev/null || true
-echo "=== done seg div=$DIV seg=$SEG | $(date) ==="
+echo "=== done seg newline div=$DIV | $(date) ==="
