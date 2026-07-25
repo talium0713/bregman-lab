@@ -1,0 +1,38 @@
+#!/bin/bash
+# AlpacaEval generation for the NEWLINE+kln policies (the key comparison: newline vs newline+kln).
+# Separate from gen_alpaca.slrm (baseline + token + newline) so it doesn't disturb that job. Generates
+# greedy 512-token responses for the 6 newline+kln checkpoints (stageB_{div}_newline_kln_match1p7b_policy).
+# Needs data/alpaca_eval.jsonl + those policies (jobs/stage_b_newline_kln.slrm). Submit FROM llm/ with a
+# dependency on the newline+kln training job:
+#   sbatch --dependency=afterok:<newline_kln_jobid> jobs/gen_alpaca_kln.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=genalpkln
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-6
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=4:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)
+declare -A SHOW=([kl]=RKL [adiv]=alphadiv [rkl]=FKL [js]=JS [hel]=Hel [chi2]=chi2)
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+MODEL="results/stageB_${DIV}_newline_kln_match1p7b_policy"
+GEN="${SHOW[$DIV]}-nlkln"
+OUT="results/alpaca_${DIV}_newline_kln.json"
+
+echo "=== gen AlpacaEval [$GEN] from $MODEL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_alpaca.py --model "$MODEL" --prompts data/alpaca_eval.jsonl --generator "$GEN" --max-new 512 --out "$OUT"
+echo "=== done $GEN -> $OUT | $(date) ==="

@@ -30,8 +30,8 @@ fi
 command -v alpaca_eval >/dev/null 2>&1 || { echo "alpaca_eval not installed — on a login node/Mac (internet): pip install alpaca-eval"; exit 1; }
 [ -f "$REF" ] || { echo "missing $REF — generate it first (jobs/gen_alpaca.slrm task 0)"; exit 1; }
 
-CANDS=()
-for d in kl adiv rkl js hel chi2; do CANDS+=("$d" "${d}_newline"); done   # token + newline per divergence
+CANDS=()   # token, newline, newline+kln per divergence (key comparison = newline vs newline+kln)
+for d in kl adiv rkl js hel chi2; do CANDS+=("$d" "${d}_newline" "${d}_newline_kln"); done
 
 for c in "${CANDS[@]}"; do
   [ -f "results/alpaca_${c}.json" ] || { echo "skip $c (no results/alpaca_${c}.json)"; continue; }
@@ -57,9 +57,10 @@ def wr(tag):
                 r.get("length_controlled_winrate") or r.get("lc_win_rate") or "-")
     except Exception as e:
         return f"err:{e}", "-"
-print(f"{'Omega':10s} {'token_win':>10s} {'token_LC':>9s} {'newline_win':>12s} {'newline_LC':>11s}")
+f = lambda x: "-" if x is None else str(x)
+print("win_rate vs SFT baseline  (kln rescue shows up as newline -> newline+kln)")
+print(f"{'Omega':10s} {'token':>8s} {'newline':>9s} {'nl+kln':>8s}")
 for d in ["kl","adiv","rkl","js","hel","chi2"]:
-    tw, tl = wr(d); nw, nl = wr(f"{d}_newline")
-    f = lambda x: "-" if x is None else str(x)
-    print(f"{base[d]:10s} {f(tw):>10s} {f(tl):>9s} {f(nw):>12s} {f(nl):>11s}")
+    tw, _ = wr(d); nw, _ = wr(f"{d}_newline"); kw, _ = wr(f"{d}_newline_kln")
+    print(f"{base[d]:10s} {f(tw):>8s} {f(nw):>9s} {f(kw):>8s}")
 PY
