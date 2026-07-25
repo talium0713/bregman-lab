@@ -1,0 +1,53 @@
+#!/bin/bash
+# Stage B — newline + kln (KL-normalization, Appendix E) at the MATCHED recipe. Identical to
+# stage_b_seg (newline, matched recipe) EXCEPT --kln, so the only change is the generator normalization
+# f'(1)=1. Tests whether kln tames the newline (sentence-step) off-policy noise: theory says it removes
+# the 1/u_k tail iff f(0+)=1-f'(1) -> chi2 fully (Phi_kln=u), Hel softened (sqrt u); alpha-div/JS/FKL
+# keep the tail. RKL is unchanged (kln shift 0) -> still the invariant anchor. Compare against the
+# non-kln newline runs (stageB_{div}_newline_match1p7b).
+# Needs results/sft_uc_1p7b_model + data/uf_pairs_train_full.jsonl. Submit FROM llm/:
+#   sbatch jobs/stage_b_newline_kln.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBnlkln
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-6
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=18:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)          # euc excluded from kln (Bregman, no f(u) generator)
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")
+
+echo "=== Stage B newline+kln Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
+
+# background GPU-util logger -> logs/gpu-<jobid>.csv (tail -f for live util over time)
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
+  > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
+SMI_PID=$!
+
+# SAME as stage_b_seg (newline, matched recipe) + --kln. Only the generator normalization differs.
+python stage_b_train.py \
+  --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 --kln \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner sample --step-mode newline \
+  --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/stageB_${DIV}_newline_kln_match1p7b"
+
+kill "$SMI_PID" 2>/dev/null || true
+echo "=== done newline+kln div=$DIV | $(date) ==="
