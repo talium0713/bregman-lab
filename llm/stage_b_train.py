@@ -78,9 +78,9 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
     log_u = logp_y_pol - logp_y_ref
 
     if step_ids is not None or step_size > 1:         # STEP-LEVEL: aggregate completion tokens into steps
-        if key == "euc" or inner != "sample":
-            raise ValueError("step-level supports only f-divergences with --inner sample "
-                             "(the inner term over the sentence action space is intractable)")
+        if key == "euc" or inner not in ("sample", "trl"):
+            raise ValueError("step-level supports --inner sample|trl, f-divergences only "
+                             "(the exact inner term over the sentence action space is intractable)")
         lu = log_u[comp[1:].bool()]                   # completion log-ratios, in response order
         n = lu.shape[0]
         if n == 0:
@@ -93,6 +93,8 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
         if clamp is not None:
             log_u_k = log_u_k.clamp(-clamp, clamp)
         chosen = fprime_from_logu(key, log_u_k, adiv_a, kln=kln)
+        if inner == "trl":                            # TRL/sequence estimator applied per step: chosen f'(u_k), NO inner term
+            return beta * chosen.sum()                # β Σ_k f'(u_k)  (drops Φ; sequence-TRL's inner term cancels only at K=1)
         inner_c = phi_from_logu(key, log_u_k, adiv_a, kln=kln)
         return beta * (chosen - inner_c).sum()        # β Σ_k f(u_k)/u_k
 
@@ -102,14 +104,18 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
     if key == "euc":                                  # Bregman: chosen term = [∇Ω]_a = π_θ(a) − π_ref(a)
         p_y_pol = logp_y_pol.exp()
         chosen = p_y_pol - logp_y_ref.exp()           # d = π_θ(y) − π_ref(y)
-        if inner == "sample":                         # single-sample inner h = d − d²/(2π_θ) ⇒ S = β Σ d²/(2π_θ)
+        if inner == "trl":                            # TRL-style: chosen only, no inner term
+            inner_c = torch.zeros_like(chosen)
+        elif inner == "sample":                       # single-sample inner h = d − d²/(2π_θ) ⇒ S = β Σ d²/(2π_θ)
             inner_c = chosen - chosen * chosen / (2.0 * p_y_pol.clamp_min(1e-12))   # 1/π_θ tail (guard floor)
         else:
             inner_c = exact_C("euc", torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
                               adiv_a, dtype=lp.dtype)
     else:
         chosen = fprime_from_logu(key, log_u, adiv_a, kln=kln)
-        if inner == "sample":
+        if inner == "trl":                            # TRL/sequence estimator applied per token: chosen f'(u), NO inner term
+            inner_c = torch.zeros_like(chosen)
+        elif inner == "sample":
             inner_c = phi_from_logu(key, log_u, adiv_a, kln=kln)
         else:                                         # exact vocab sum (fp32 for training)
             inner_c = exact_C(key, torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
@@ -294,7 +300,9 @@ def main():
     ap.add_argument("--eval-data", default=None, help="held-out preference file for eval (e.g. the UF test_prefs split); "
                                                       "if unset, a slice of --data is held out instead")
     ap.add_argument("--div", default="kl", choices=KEYS)
-    ap.add_argument("--inner", default="sample", choices=["sample", "exact"])
+    ap.add_argument("--inner", default="sample", choices=["sample", "exact", "trl"],
+                    help="inner term estimator: sample (logged token/step Φ), exact (full-vocab, token only), "
+                         "trl (drop the inner term — TRL/sequence-level estimator applied per step)")
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument("--lr", type=float, default=5e-7)
     ap.add_argument("--steps", type=int, default=1000)

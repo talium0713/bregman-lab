@@ -1,0 +1,54 @@
+#!/bin/bash
+# Stage B — newline + TRL estimator at the MATCHED recipe. Identical to stage_b_seg (newline, matched
+# recipe) EXCEPT --inner trl, so the only change is the ESTIMATOR: TRL is sequence-level (bandit, K=1)
+# and drops the inner term because it cancels at K=1; here we extend it to K sentence-steps and apply
+# f'(u_k) per step with NO inner term (S = beta * sum_k f'(u_k)). Compare against:
+#   newline      (single-sample inner, stageB_{div}_newline_match1p7b)      : chosen - Phi(u_k)
+#   newline+kln  (kln-normalized inner, stageB_{div}_newline_kln_match1p7b) : chosen - Phi_c(u_k)
+# Note: dropping the inner term reintroduces a per-step-count (length) bias even for RKL (S = DPO + beta*K),
+# so RKL is NOT invariant under TRL at K>1 -> the inner term IS what makes admissibility work.
+# Needs results/sft_uc_1p7b_model + data/uf_pairs_train_full.jsonl. Submit FROM llm/:
+#   sbatch jobs/stage_b_newline_trl.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBnltrl
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-6
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=18:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl adiv rkl js hel chi2)
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+declare -A SHOW=([kl]=RKL [adiv]="α-div" [rkl]=FKL [js]=JS [hel]=Hel [chi2]="χ²")
+
+echo "=== Stage B newline+TRL Ω=${SHOW[$DIV]} (key $DIV) on $(hostname) | $(date) ==="; nvidia-smi
+
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
+  > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
+SMI_PID=$!
+
+# SAME as stage_b_seg (newline, matched recipe) + --inner trl (drop the inner term). Only the estimator differs.
+python stage_b_train.py \
+  --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner trl --step-mode newline \
+  --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/stageB_${DIV}_newline_trl_match1p7b"
+
+kill "$SMI_PID" 2>/dev/null || true
+echo "=== done newline+TRL div=$DIV | $(date) ==="
