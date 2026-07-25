@@ -15,3 +15,6 @@ llm/data/*.jsonl
 # GPU venvs / cluster caches never belong in git
 venv_gpu/
 llm/venv_gpu/
+openai_key.txt
+llm/openai_key.txt
+**/openai_key.txt

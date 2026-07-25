@@ -1,23 +1,34 @@
 #!/bin/bash
-# AlpacaEval stage 2 (JUDGING) — run on your Mac (needs internet + OPENAI_API_KEY), after scp-ing the
-# cluster-generated results/alpaca_*.json back. Judges each candidate's outputs vs the SFT baseline
-# with the paper's default GPT-4 annotator (weighted_alpaca_eval_gpt4_turbo), then prints win rates.
-# Covers BOTH granularities: token-level (alpaca_{div}.json) and newline (alpaca_{div}_newline.json).
+# AlpacaEval stage 2 (JUDGING) — the ONLY internet-needing step. Run it where there IS internet:
+#   • a Killarney LOGIN node (klogin*, has internet) — reads results/ on /scratch directly, no scp; OR
+#   • your Mac (after scp-ing results/alpaca_*.json back).
+# NOT via sbatch: compute nodes have no outbound internet, so they cannot reach api.openai.com.
+# Judges each candidate vs the SFT baseline with the paper's default GPT-4 annotator
+# (weighted_alpaca_eval_gpt4_turbo); covers token (alpaca_{div}.json) and newline (alpaca_{div}_newline.json).
 #
+# One-time setup (login node / Mac, needs internet — a separate venv keeps it off venv_gpu):
+#   module load python/3.11 && virtualenv ~/judge_env && source ~/judge_env/bin/activate
 #   pip install alpaca-eval
-#   export OPENAI_API_KEY=sk-...
-#   bash run_alpaca_judge.sh
+# Provide the key ONE of two ways (then run `bash run_alpaca_judge.sh`):
+#   export OPENAI_API_KEY=sk-...          # env var, OR
+#   echo 'sk-...' > openai_key.txt        # a file next to this script (gitignored) — "fill in and go"
+# Long run (rate limits): use a persistent session first ->  tmux new -s judge
 #
-# Win rate = fraction of the 805 prompts where the judge prefers the candidate's response over the SFT
-# baseline's (arXiv:2512.00778 B.3). RKL(kl) token should land near their reported DPO win rate; the
-# token vs newline gap shows the granularity effect per divergence.
+# Win rate = fraction of the 805 prompts where the judge prefers the candidate over the SFT baseline
+# (arXiv:2512.00778 B.3). RKL(kl) token should land near their reported DPO win rate; the token vs
+# newline gap is the granularity effect per divergence.
 set -uo pipefail
 cd "$(dirname "$0")"
 REF="results/alpaca_sft_base.json"
 ANN="weighted_alpaca_eval_gpt4_turbo"
 
+# API key: prefer $OPENAI_API_KEY, else read openai_key.txt (gitignored). "기입만 하면" = drop the key there.
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -f openai_key.txt ]; then
+  export OPENAI_API_KEY="$(tr -d '[:space:]' < openai_key.txt)"
+fi
+[ -n "${OPENAI_API_KEY:-}" ] || { echo "no OPENAI_API_KEY — export it, or put the key in $(pwd)/openai_key.txt"; exit 1; }
+command -v alpaca_eval >/dev/null 2>&1 || { echo "alpaca_eval not installed — on a login node/Mac (internet): pip install alpaca-eval"; exit 1; }
 [ -f "$REF" ] || { echo "missing $REF — generate it first (jobs/gen_alpaca.slrm task 0)"; exit 1; }
-[ -n "${OPENAI_API_KEY:-}" ] || { echo "set OPENAI_API_KEY first"; exit 1; }
 
 CANDS=()
 for d in kl adiv rkl js hel chi2; do CANDS+=("$d" "${d}_newline"); done   # token + newline per divergence
