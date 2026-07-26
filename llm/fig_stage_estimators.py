@@ -43,7 +43,7 @@ def load(d, div, suf):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_estimators")
+    ap.add_argument("--out", default="results/stageB_matched_sentence_single-vs-kln-vs-trl")
     args = ap.parse_args()
 
     order = [k for k in KEYS if k != "euc"]

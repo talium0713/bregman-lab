@@ -39,7 +39,7 @@ def load(d, div, seg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_granularity")
+    ap.add_argument("--out", default="results/stageB_matched_token-vs-sentence_single")
     args = ap.parse_args()
 
     order = [k for k in KEYS if k != "euc"]                 # 6 f-divergences

@@ -35,7 +35,7 @@ def traj(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_trajectory")
+    ap.add_argument("--out", default="results/stageB_matched_token-vs-sentence_single_curves")
     args = ap.parse_args()
 
     order = [k for k in KEYS if k != "euc"]

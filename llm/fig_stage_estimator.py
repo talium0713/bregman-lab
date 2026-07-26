@@ -43,7 +43,7 @@ def main():
     ap.add_argument("--dir", default="results/matched")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
-    out = args.out or f"results/stageB_newline_{args.variant}"
+    out = args.out or f"results/stageB_matched_sentence_single-vs-{args.variant}"
 
     order = [k for k in KEYS if k != "euc"]
     base = {k: load(args.dir, k, "base") for k in order}
