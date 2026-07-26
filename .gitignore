@@ -18,3 +18,7 @@ llm/venv_gpu/
 openai_key.txt
 llm/openai_key.txt
 **/openai_key.txt
+llm/results/**/*.json
+llm/results/**/*.npz
+llm/results/*.json
+llm/results/*.npz

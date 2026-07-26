@@ -38,7 +38,7 @@ def load(d, div, seg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="results")
+    ap.add_argument("--dir", default="results/matched")
     ap.add_argument("--out", default="results/stageB_granularity")
     args = ap.parse_args()
 

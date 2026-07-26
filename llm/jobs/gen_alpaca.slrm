@@ -29,11 +29,11 @@ DIVS=(kl adiv rkl js hel chi2)
 declare -A SHOW=([kl]=RKL [adiv]=alphadiv [rkl]=FKL [js]=JS [hel]=Hel [chi2]=chi2)
 i=$SLURM_ARRAY_TASK_ID
 if [ "$i" -eq 0 ]; then                          # task 0 = SFT baseline (the reference for win rate)
-  MODEL="results/sft_uc_1p7b_model"; GEN="sft_base"; OUT="results/alpaca_sft_base.json"
+  MODEL="results/sft_uc_1p7b_model"; GEN="sft_base"; OUT="results/matched/alpaca_sft_base.json"
 elif [ "$i" -le 6 ]; then                        # tasks 1-6 = matched TOKEN-level policies (stage_b_match)
-  DIV="${DIVS[$((i - 1))]}"; MODEL="results/stageB_${DIV}_match1p7b_policy"; GEN="${SHOW[$DIV]}"; OUT="results/alpaca_${DIV}.json"
+  DIV="${DIVS[$((i - 1))]}"; MODEL="results/matched/stageB_${DIV}_match1p7b_policy"; GEN="${SHOW[$DIV]}"; OUT="results/matched/alpaca_${DIV}.json"
 else                                             # tasks 7-12 = NEWLINE-level policies (stage_b_seg, same recipe)
-  DIV="${DIVS[$((i - 7))]}"; MODEL="results/stageB_${DIV}_newline_match1p7b_policy"; GEN="${SHOW[$DIV]}-newline"; OUT="results/alpaca_${DIV}_newline.json"
+  DIV="${DIVS[$((i - 7))]}"; MODEL="results/matched/stageB_${DIV}_newline_match1p7b_policy"; GEN="${SHOW[$DIV]}-newline"; OUT="results/matched/alpaca_${DIV}_newline.json"
 fi
 
 echo "=== gen AlpacaEval [$GEN] from $MODEL on $(hostname) | $(date) ==="; nvidia-smi

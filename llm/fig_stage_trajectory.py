@@ -34,7 +34,7 @@ def traj(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="results")
+    ap.add_argument("--dir", default="results/matched")
     ap.add_argument("--out", default="results/stageB_trajectory")
     args = ap.parse_args()
 

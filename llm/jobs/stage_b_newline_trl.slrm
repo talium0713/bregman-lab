@@ -48,7 +48,7 @@ python stage_b_train.py \
   --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
   --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
   --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
-  --out "results/stageB_${DIV}_newline_trl_match1p7b"
+  --out "results/matched/stageB_${DIV}_newline_trl_match1p7b"
 
 kill "$SMI_PID" 2>/dev/null || true
 echo "=== done newline+TRL div=$DIV | $(date) ==="

@@ -19,7 +19,7 @@
 # newline gap is the granularity effect per divergence.
 set -uo pipefail
 cd "$(dirname "$0")"
-REF="results/alpaca_sft_base.json"
+REF="results/matched/alpaca_sft_base.json"
 ANN="weighted_alpaca_eval_gpt4_turbo"
 
 # API key: prefer $OPENAI_API_KEY, else read openai_key.txt (gitignored). "기입만 하면" = drop the key there.
@@ -34,12 +34,12 @@ CANDS=()   # token, newline, newline+kln per divergence (key comparison = newlin
 for d in kl adiv rkl js hel chi2; do CANDS+=("$d" "${d}_newline" "${d}_newline_kln"); done
 
 for c in "${CANDS[@]}"; do
-  [ -f "results/alpaca_${c}.json" ] || { echo "skip $c (no results/alpaca_${c}.json)"; continue; }
+  [ -f "results/matched/alpaca_${c}.json" ] || { echo "skip $c (no results/matched/alpaca_${c}.json)"; continue; }
   echo "=== judging $c vs SFT baseline ==="
-  alpaca_eval --model_outputs "results/alpaca_${c}.json" \
+  alpaca_eval --model_outputs "results/matched/alpaca_${c}.json" \
               --reference_outputs "$REF" \
               --annotators_config "$ANN" \
-              --output_path "results/ae_${c}" || echo "  (alpaca_eval failed for $c)"
+              --output_path "results/matched/ae_${c}" || echo "  (alpaca_eval failed for $c)"
 done
 
 echo
@@ -48,7 +48,7 @@ python3 - <<'PY'
 import csv, glob
 base = {"kl":"RKL","adiv":"alpha-div","rkl":"FKL","js":"JS","hel":"Hel","chi2":"chi2"}
 def wr(tag):
-    fs = glob.glob(f"results/ae_{tag}/**/leaderboard.csv", recursive=True) + glob.glob(f"results/ae_{tag}/*leaderboard*.csv")
+    fs = glob.glob(f"results/matched/ae_{tag}/**/leaderboard.csv", recursive=True) + glob.glob(f"results/matched/ae_{tag}/*leaderboard*.csv")
     if not fs:
         return None, None
     try:

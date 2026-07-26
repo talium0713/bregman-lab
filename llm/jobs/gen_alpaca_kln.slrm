@@ -29,9 +29,9 @@ cd "$REPO/llm"
 DIVS=(kl adiv rkl js hel chi2)
 declare -A SHOW=([kl]=RKL [adiv]=alphadiv [rkl]=FKL [js]=JS [hel]=Hel [chi2]=chi2)
 DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
-MODEL="results/stageB_${DIV}_newline_kln_match1p7b_policy"
+MODEL="results/matched/stageB_${DIV}_newline_kln_match1p7b_policy"
 GEN="${SHOW[$DIV]}-nlkln"
-OUT="results/alpaca_${DIV}_newline_kln.json"
+OUT="results/matched/alpaca_${DIV}_newline_kln.json"
 
 echo "=== gen AlpacaEval [$GEN] from $MODEL on $(hostname) | $(date) ==="; nvidia-smi
 python gen_alpaca.py --model "$MODEL" --prompts data/alpaca_eval.jsonl --generator "$GEN" --max-new 512 --out "$OUT"

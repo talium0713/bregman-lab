@@ -40,7 +40,7 @@ def load(d, div, variant):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="kln", choices=["kln", "trl"])
-    ap.add_argument("--dir", default="results")
+    ap.add_argument("--dir", default="results/matched")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     out = args.out or f"results/stageB_newline_{args.variant}"
