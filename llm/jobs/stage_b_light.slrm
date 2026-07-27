@@ -1,0 +1,67 @@
+#!/bin/bash
+# Stage B — LIGHT recipe campaign: fill the granularity × estimator matrix in the NOISE-VISIBLE regime.
+# Light recipe = lr 1e-6, grad-clip 10, batch 8, chosen-SFT init (results/sft_1p7b_model, pi_ref=base so
+# u!=1, no freeze -> no init-noise), 20k UltraFeedback, eval on the UF test_prefs split. Unlike the
+# matched recipe (batch 512 averages the single-sample noise and masks the divergence differences), the
+# small batch keeps the noise visible, so this is where the estimator/granularity effects show cleanly.
+#
+# 8 configs × 6 f-divergences = 48 tasks. Output results/sft1p7b/stageB_{div}_{label}_light1p7b (new tag
+# _light1p7b, all with the same test_prefs eval -> internally consistent; the old _sft1p7b/_kln1p7b used
+# a train-slice eval). No --save-policy (light win-rate not needed; saves disk).
+#   config -> array indices (config outer, div inner):
+#     token 1-6 · token_kln 7-12 · token_trl 13-18 · s8 19-24 · s64 25-30 · newline 31-36 ·
+#     newline_kln 37-42 · newline_trl 43-48
+# Submit all:  sbatch jobs/stage_b_light.slrm   |  subset e.g. newline block: sbatch --array=31-42 jobs/stage_b_light.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBlight
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-48
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+CONFIGS=(
+  "token:--step-mode token --inner sample"
+  "token_kln:--step-mode token --inner sample --kln"
+  "token_trl:--step-mode token --inner trl"
+  "s8:--step-mode fixed --step-size 8 --inner sample"
+  "s64:--step-mode fixed --step-size 64 --inner sample"
+  "newline:--step-mode newline --inner sample"
+  "newline_kln:--step-mode newline --inner sample --kln"
+  "newline_trl:--step-mode newline --inner trl"
+)
+DIVS=(kl adiv rkl js hel chi2)                 # euc excluded (no kln/trl/step)
+ND=${#DIVS[@]}
+i=$((SLURM_ARRAY_TASK_ID - 1))
+CFG="${CONFIGS[$((i / ND))]}"; DIV="${DIVS[$((i % ND))]}"
+LABEL="${CFG%%:*}"; FLAGS="${CFG#*:}"
+
+echo "=== Stage B LIGHT Ω=$DIV config=$LABEL ($FLAGS) on $(hostname) | $(date) ==="; nvidia-smi
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
+  > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
+SMI_PID=$!
+
+# light recipe: chosen-SFT init, pi_ref=base (u!=1 -> no freeze), lr 1e-6, batch 8, grad-clip 10.
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+  --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" $FLAGS \
+  --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 50 --seed 0 \
+  --out "results/sft1p7b/stageB_${DIV}_${LABEL}_light1p7b"
+
+kill "$SMI_PID" 2>/dev/null || true
+echo "=== done LIGHT div=$DIV config=$LABEL | $(date) ==="
