@@ -33,15 +33,21 @@ def val(d, div, tag):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_matched_token-vs-sentence_no-kln-vs-kln")
+    ap.add_argument("--recipe", default="matched", choices=["matched", "light"])
+    ap.add_argument("--dir", default=None)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     order = [k for k in KEYS if k != "euc"]
-    cells = {  # (granularity) -> (no-kln tag, kln tag)
-        "token":    ("match1p7b", "kln_match1p7b"),
-        "sentence": ("newline_match1p7b", "newline_kln_match1p7b"),
-    }
+    if args.recipe == "light":                          # light tags: stageB_{div}_{token,token_kln,newline,newline_kln}_light1p7b
+        args.dir = args.dir or "results/sft1p7b"
+        cells = {"token": ("token_light1p7b", "token_kln_light1p7b"),
+                 "sentence": ("newline_light1p7b", "newline_kln_light1p7b")}
+    else:
+        args.dir = args.dir or "results/matched"
+        cells = {"token": ("match1p7b", "kln_match1p7b"),
+                 "sentence": ("newline_match1p7b", "newline_kln_match1p7b")}
+    args.out = args.out or f"results/stageB_{args.recipe}_token-vs-sentence_no-kln-vs-kln"
     x = np.arange(len(order)); w = 0.38
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.0), sharey=True)
     for ax, (gran, (t0, t1)) in zip(axes, cells.items()):
@@ -59,7 +65,7 @@ def main():
     axes[0].legend(handles=[Patch(facecolor="0.5", edgecolor="#222", label="no-kln"),
                             Patch(facecolor="0.5", alpha=0.45, hatch="///", edgecolor="#222", label="+kln")],
                    fontsize=8, loc="upper right")
-    fig.suptitle("Stage B · Qwen3-1.7B · kln effect at token vs sentence (matched recipe) · only RKL stable",
+    fig.suptitle(f"Stage B · Qwen3-1.7B · {args.recipe} recipe · kln effect: token vs sentence",
                  fontsize=11, y=1.0)
     fig.tight_layout(); fig.savefig(args.out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", args.out + ".png")
