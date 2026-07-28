@@ -32,8 +32,8 @@ def _last_eval(h):
     return e[-1] if e else {}
 
 
-def load(d, div, suf):
-    f = os.path.join(d, f"stageB_{div}_newline{suf}_match1p7b.json")
+def load(d, div, suf, rtag):
+    f = os.path.join(d, f"stageB_{div}_newline{suf}_{rtag}.json")
     if not os.path.exists(f):
         return None
     h = json.load(open(f))["history"]
@@ -42,12 +42,16 @@ def load(d, div, suf):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_matched_sentence_single-vs-kln-vs-trl")
+    ap.add_argument("--recipe", default="matched", choices=["matched", "light"])
+    ap.add_argument("--dir", default=None)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    rtag = "light1p7b" if args.recipe == "light" else "match1p7b"
+    args.dir = args.dir or ("results/sft1p7b" if args.recipe == "light" else "results/matched")
+    args.out = args.out or f"results/stageB_{args.recipe}_sentence_single-vs-kln-vs-trl"
 
     order = [k for k in KEYS if k != "euc"]
-    data = {lab: {k: load(args.dir, k, suf) for k in order} for lab, suf, _, _ in VARIANTS}
+    data = {lab: {k: load(args.dir, k, suf, rtag) for k in order} for lab, suf, _, _ in VARIANTS}
     order = [k for k in order if all(data[lab].get(k) for lab, *_ in VARIANTS)]
     if not order:
         raise SystemExit("need newline + newline_kln + newline_trl jsons in " + args.dir)
@@ -70,7 +74,7 @@ def main():
     axL.legend(handles=leg, fontsize=8, loc="upper right", ncol=3)
     for ax in (axL, axR):
         ax.set_xticks(x); ax.set_xticklabels([SHORT[k] for k in order])
-    fig.suptitle("Stage B · Qwen3-1.7B · newline estimators: single-sample vs kln vs TRL (matched recipe)", fontsize=11, y=1.0)
+    fig.suptitle(f"Stage B · Qwen3-1.7B · {args.recipe} recipe · newline estimators: single vs kln vs TRL", fontsize=11, y=1.0)
     fig.tight_layout(); fig.savefig(args.out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", args.out + ".png")
     for lab, *_ in VARIANTS:

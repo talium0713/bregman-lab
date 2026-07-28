@@ -19,8 +19,10 @@ import matplotlib.pyplot as plt
 
 from divergences import KEYS, SHORT, COLORS
 
-RUNGS = [("token", "match1p7b"), ("fixed-8", "s8_match1p7b"),
-         ("sentence", "newline_match1p7b"), ("fixed-64", "s64_match1p7b")]
+RUNGS_MATCHED = [("token", "match1p7b"), ("fixed-8", "s8_match1p7b"),
+                 ("sentence", "newline_match1p7b"), ("fixed-64", "s64_match1p7b")]
+RUNGS_LIGHT = [("token", "token_light1p7b"), ("fixed-8", "s8_light1p7b"),
+               ("sentence", "newline_light1p7b"), ("fixed-64", "s64_light1p7b")]
 
 
 def _le(h):
@@ -35,9 +37,13 @@ def val(d, div, tag):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="results/matched")
-    ap.add_argument("--out", default="results/stageB_matched_granularity-ladder_single")
+    ap.add_argument("--recipe", default="matched", choices=["matched", "light"])
+    ap.add_argument("--dir", default=None)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    RUNGS = RUNGS_LIGHT if args.recipe == "light" else RUNGS_MATCHED
+    args.dir = args.dir or ("results/sft1p7b" if args.recipe == "light" else "results/matched")
+    args.out = args.out or f"results/stageB_{args.recipe}_granularity-ladder_single"
 
     order = [k for k in KEYS if k != "euc"]
     xs = np.arange(len(RUNGS))
@@ -52,9 +58,9 @@ def main():
                                            zip([r[0] for r in RUNGS], [1, 8, "20", 64])])
     ax.set_ylabel("held-out preference accuracy"); ax.set_xlabel("granularity  (coarser →)")
     ax.set_ylim(0.44, 0.75)
-    ax.set_title("granularity dose-response (single-sample) · only RKL stays flat")
+    ax.set_title("granularity dose-response (single-sample)")
     ax.legend(ncol=2, fontsize=9, framealpha=0.9)
-    fig.suptitle("Stage B · Qwen3-1.7B · matched recipe · token → fixed-8 → sentence → fixed-64", fontsize=11, y=0.99)
+    fig.suptitle(f"Stage B · Qwen3-1.7B · {args.recipe} recipe · granularity ladder: token → fixed-8 → sentence → fixed-64", fontsize=11, y=0.99)
     fig.tight_layout(); fig.savefig(args.out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", args.out + ".png")
     for k in order:
