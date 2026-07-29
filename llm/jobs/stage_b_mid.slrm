@@ -1,0 +1,69 @@
+#!/bin/bash
+# Stage B — MID recipe: disentangle whether kln's efficacy (consistent at light batch-8, jagged at
+# matched batch-512) is driven by BATCH SIZE or by INIT. Batch 64, lr 5e-6 (≈ linear-scaling of matched
+# 5e-5 @ 512, so effective signal ≈ matched; the main change is 8× more per-step noise), 2 epochs on full
+# UltraFeedback, +init-noise 0.01 (escape the u=1 freeze), clamp 15, matched's other knobs.
+#
+# 8 configs = {init sft|base} × {token|newline} × {no-kln|kln}, × 6 f-divs = 48 tasks. kln 2×2 per init:
+#   • sft-init (matched init, batch 64) vs matched (batch 512): kln consistent here ⇒ BATCH is the driver.
+#   • base-init vs sft-init (same batch 64): ⇒ INIT/ref effect.
+#   sft block = array 1-24, base block = 25-48. Output results/mid/stageB_{div}_{label}_mid1p7b.
+# Submit FROM llm/:  sbatch jobs/stage_b_mid.slrm   |  sft-init only: sbatch --array=1-24 jobs/stage_b_mid.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBmid
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-48
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=18:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+CONFIGS=(
+  "sft_token:sft:--step-mode token --inner sample"
+  "sft_token_kln:sft:--step-mode token --inner sample --kln"
+  "sft_newline:sft:--step-mode newline --inner sample"
+  "sft_newline_kln:sft:--step-mode newline --inner sample --kln"
+  "base_token:base:--step-mode token --inner sample"
+  "base_token_kln:base:--step-mode token --inner sample --kln"
+  "base_newline:base:--step-mode newline --inner sample"
+  "base_newline_kln:base:--step-mode newline --inner sample --kln"
+)
+DIVS=(kl adiv rkl js hel chi2)
+ND=${#DIVS[@]}
+i=$((SLURM_ARRAY_TASK_ID - 1))
+CFG="${CONFIGS[$((i / ND))]}"; DIV="${DIVS[$((i % ND))]}"
+LABEL="${CFG%%:*}"; rest="${CFG#*:}"; INIT="${rest%%:*}"; FLAGS="${rest#*:}"
+case "$INIT" in
+  sft)  REF="results/sft_uc_1p7b_model"; POL="results/sft_uc_1p7b_model" ;;
+  base) REF="Qwen/Qwen3-1.7B-Base";      POL="Qwen/Qwen3-1.7B-Base" ;;
+esac
+
+echo "=== Stage B MID Ω=$DIV cfg=$LABEL (init=$INIT $FLAGS) on $(hostname) | $(date) ==="; nvidia-smi
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 30 \
+  > "logs/gpu-${SLURM_JOB_ID}.csv" 2>/dev/null &
+SMI_PID=$!
+
+# batch 64, lr 5e-6 (linear-scaled from matched), 2 ep, +init-noise; everything else = matched.
+python stage_b_train.py \
+  --ref "$REF" --policy "$POL" --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" $FLAGS \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 \
+  --out "results/mid/stageB_${DIV}_${LABEL}_mid1p7b"
+
+kill "$SMI_PID" 2>/dev/null || true
+echo "=== done MID div=$DIV cfg=$LABEL | $(date) ==="
