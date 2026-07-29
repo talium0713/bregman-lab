@@ -73,8 +73,7 @@ def main():
                          f"scp results/lenbias/*.csv here first.")
 
     b = args.beta
-    fig, axes = plt.subplots(len(present), 2, figsize=(13.5, 4.6 * len(present)),
-                             gridspec_kw={"width_ratios": [1.7, 1]}, squeeze=False)
+    fig, axes = plt.subplots(len(present), 1, figsize=(9.5, 4.8 * len(present)), squeeze=False)
     print(f"{'Ω':6s} {'f′(1)':>6s} {'single':>8s} {'TRLrec':>8s} {'TRLobs':>8s} {'ΔK=0':>8s}  (n)")
     for row, d in enumerate(present):
         m, dK = load_csv(os.path.join(args.dir, f"stageB_{d}_newline_{tag}_perpair.csv"))
@@ -110,27 +109,9 @@ def main():
         axL.set_xticklabels([f"{l}\nn={n}" for l, n in zip(BIN_LABEL, n_bin)], fontsize=8)
         axL.set_ylim(0.0, 1.0); axL.set_ylabel("held-out preference accuracy")
         axL.set_xlabel("length gap  ΔK = K_w − K_l")
-        axL.set_title(f"{SHORT[d]}  (f′(1)={fp1:+.0f}) · length term lifts accuracy only where ΔK favors the winner")
-        axL.legend(fontsize=8, loc="upper left")
-
-        # ── R: overall bars ──────────────────────────────────────────────────────────────
-        axR = axes[row][1]
-        labs = ["single", "TRL\n(recon)", "TRL\n(obs)", "ΔK=0\nsubset"]
-        vals = [a_single, a_trl, obs_trl if obs_trl is not None else np.nan, a_z]
-        cols = ["0.6", col, col, "0.8"]
-        hats = ["", "xxx", "", "//"]
-        bars = axR.bar(np.arange(4), vals, 0.7, color=cols, alpha=0.9,
-                       hatch=hats, edgecolor="#222", lw=0.5)
-        for xi, v in zip(np.arange(4), vals):
-            if np.isfinite(v):
-                axR.annotate(f"{v:.3f}", (xi, v + 0.008), ha="center", fontsize=8)
-        if obs_sgl is not None:
-            axR.axhline(obs_sgl, color="#333", ls="--", lw=1, label=f"obs single {obs_sgl:.3f}")
-            axR.legend(fontsize=7, loc="lower right")
-        axR.axhline(0.5, color="0.6", ls=":", lw=1)
-        axR.set_xticks(np.arange(4)); axR.set_xticklabels(labs, fontsize=8)
-        axR.set_ylim(0.3, max(0.8, np.nanmax(vals) + 0.05)); axR.set_ylabel("accuracy")
-        axR.set_title("overall: TRL(recon) ≈ TRL(obs);  ΔK=0 ⇒ single")
+        axL.set_title(f"{SHORT[d]}  (f′(1)={fp1:+.0f}) · overall single {a_single:.3f} → +β·f′(1)·ΔK {a_trl:.3f} "
+                      f"(net {a_trl-a_single:+.3f}); length term acts only where ΔK favors the winner, 0 at ΔK=0")
+        axL.legend(fontsize=9, loc="upper left", framealpha=0.95, edgecolor="#888")
 
     fig.suptitle(f"Stage B · Qwen3-1.7B · {args.recipe} · TRL's RKL/FKL accuracy change is the length "
                  "term β·f′(1)·(K_w−K_l), not the estimator", fontsize=11, y=1.0)
