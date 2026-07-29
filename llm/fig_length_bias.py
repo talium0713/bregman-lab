@@ -102,12 +102,12 @@ def main():
                 label=f"+β·f′(1)·ΔK  = TRL")
         for k in xs:
             if np.isfinite(s_bin[k]) and np.isfinite(t_bin[k]):
-                axL.annotate(f"{t_bin[k]-s_bin[k]:+.02f}", (k, max(s_bin[k], t_bin[k]) + 0.012),
-                             ha="center", fontsize=7.5,
+                axL.annotate(f"{t_bin[k]-s_bin[k]:+.02f}", (k, max(s_bin[k], t_bin[k]) + 0.015),
+                             ha="center", fontsize=8, fontweight="bold",
                              color="#1a7a1a" if t_bin[k] >= s_bin[k] else "#b00")
-            axL.annotate(f"n={n_bin[k]}", (k, 0.02), ha="center", fontsize=6.5, color="0.35")
         axL.axhline(0.5, color="0.6", ls=":", lw=1)
-        axL.set_xticks(xs); axL.set_xticklabels(BIN_LABEL, fontsize=8)
+        axL.set_xticks(xs)
+        axL.set_xticklabels([f"{l}\nn={n}" for l, n in zip(BIN_LABEL, n_bin)], fontsize=8)
         axL.set_ylim(0.0, 1.0); axL.set_ylabel("held-out preference accuracy")
         axL.set_xlabel("length gap  ΔK = K_w − K_l")
         axL.set_title(f"{SHORT[d]}  (f′(1)={fp1:+.0f}) · length term lifts accuracy only where ΔK favors the winner")
