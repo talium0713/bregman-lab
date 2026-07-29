@@ -1,0 +1,62 @@
+#!/bin/bash
+# Stage B — retrain the two newline single-sample policies NEEDED for the length-bias probe, WITH
+# --save-policy (the original stage_b_light / stage_b_seg runs did not persist these). Only kl (RKL,
+# f'(1)=+1) and rkl (FKL, f'(1)=−1) — the two f'(1)≠0 cases where TRL = single + β·f'(1)·K exactly.
+#
+# Defaults to the LIGHT recipe (batch 8, lr 1e-6, 2500 steps, chosen-SFT init, ref=base): cheapest,
+# AND it reproduces the very result that motivated the probe (RKL 0.510→0.547, FKL 0.631→0.452 under
+# TRL). For the matched operating point instead, submit with:  sbatch --export=ALL,RECIPE=matched ...
+#
+# Output: results/sft1p7b/stageB_{kl,rkl}_newline_light1p7b_policy  (light)
+#     or  results/matched/stageB_{kl,rkl}_newline_match1p7b_policy  (matched)
+# Then run jobs/eval_length_bias.slrm with the SAME RECIPE. Submit FROM llm/:
+#   sbatch jobs/stage_b_lenbias_save.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBlbsave
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=1-2
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+RECIPE="${RECIPE:-light}"                 # light (default, cheap) | matched
+DIVS=(kl rkl)                             # kl=RKL (+ΔK helps), rkl=FKL (−ΔK hurts)
+DIV="${DIVS[$((SLURM_ARRAY_TASK_ID - 1))]}"
+
+echo "=== lenbias-save RECIPE=$RECIPE div=$DIV on $(hostname) | $(date) ==="; nvidia-smi
+
+if [ "$RECIPE" = "matched" ]; then
+  # matched recipe (arXiv:2512.00778): SFT init+ref, +init-noise, batch 512, lr 5e-5, 2 ep, full UF
+  python stage_b_train.py \
+    --ref results/sft_uc_1p7b_model --policy results/sft_uc_1p7b_model --init-noise 0.01 \
+    --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+    --div "$DIV" --inner sample --step-mode newline \
+    --beta 0.1 --lr 5e-5 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+    --epochs 2 --grad-accum 512 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+    --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+    --out "results/matched/stageB_${DIV}_newline_match1p7b"
+else
+  # light recipe: chosen-SFT init, ref=base (u!=1, no freeze), batch 8, lr 1e-6, 2500 steps, 20k UF
+  python stage_b_train.py \
+    --ref Qwen/Qwen3-1.7B-Base --policy results/sft_1p7b_model \
+    --data data/uf_pairs_train.jsonl --eval-data data/uf_pairs_test.jsonl \
+    --div "$DIV" --inner sample --step-mode newline \
+    --beta 0.1 --lr 1e-6 --grad-clip 10 --steps 2500 --grad-accum 8 --max-len 768 --clamp 15 \
+    --eval-n 256 --log-every 5 --eval-every 50 --seed 0 --save-policy \
+    --out "results/sft1p7b/stageB_${DIV}_newline_light1p7b"
+fi
+
+echo "=== done lenbias-save RECIPE=$RECIPE div=$DIV | $(date) ==="
