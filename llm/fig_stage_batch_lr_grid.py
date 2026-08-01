@@ -120,6 +120,29 @@ def main():
     figp.savefig(args.out + "_per-div.png", dpi=150, bbox_inches="tight")
     print("wrote", args.out + "_per-div.png")
 
+    # ── PER-DIVERGENCE ABSOLUTE accuracy (no-kln base): the actual performance level per Ω ──
+    figa, axa = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+    for i, div in enumerate(DIVS):
+        ax = axa[i // 3][i % 3]
+        for lrlab, col, rec_of in ROWS:
+            for gran, ls, mk in STYLE:
+                ys = [acc(rec_of[b], b, div, gran, False) for b in BATCHES]   # no-kln single-sample
+                ax.plot(np.arange(len(BATCHES)), ys, color=col, ls=ls, marker=mk, ms=6, lw=1.8,
+                        label=f"{lrlab} · {gran}")
+        ax.axhline(0.5, color="0.6", ls=":", lw=1)
+        ax.set_title(SHORT[div], fontsize=11, fontweight="bold")
+        ax.set_xticks(np.arange(len(BATCHES))); ax.set_xticklabels([f"b{b}" for b in BATCHES])
+        ax.grid(axis="y", ls=":", alpha=0.4)
+    for r in range(2):
+        axa[r][0].set_ylabel("held-out accuracy (no-kln base)")
+    axa[0][0].legend(fontsize=7.5, loc="best", framealpha=0.95, ncol=2)
+    figa.suptitle("Stage B · Qwen3-1.7B · ABSOLUTE held-out accuracy per divergence (no-kln single-sample) "
+                  "across the batch×lr grid (blue lr5e-6 / red lr5e-5 · solid token / dashed newline)",
+                  fontsize=11, y=1.0)
+    figa.tight_layout()
+    figa.savefig(args.out + "_per-div-abs.png", dpi=150, bbox_inches="tight")
+    print("wrote", args.out + "_per-div-abs.png")
+
     for gran in ["token", "newline"]:
         print(f"\n{gran}: mean|Δ| (signed mean Δ) per cell")
         for lrlab, _, rec_of in ROWS:
