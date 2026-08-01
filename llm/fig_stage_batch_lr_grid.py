@@ -21,6 +21,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from divergences import SHORT
+
 DIVS = ["kl", "adiv", "rkl", "js", "hel", "chi2"]
 
 
@@ -91,6 +93,32 @@ def main():
     fig.tight_layout()
     fig.savefig(args.out + ".png", dpi=150, bbox_inches="tight")
     print("wrote", args.out + ".png")
+
+    # ── PER-DIVERGENCE figure: one subplot per Ω; kln Δ vs batch, one line per (lr × granularity) ──
+    def kd(rec, b, div, gran):
+        return acc(rec, b, div, gran, True) - acc(rec, b, div, gran, False)
+    STYLE = [("token", "-", "o"), ("newline", "--", "s")]
+    figp, axp = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+    for i, div in enumerate(DIVS):
+        ax = axp[i // 3][i % 3]
+        for lrlab, col, rec_of in ROWS:
+            for gran, ls, mk in STYLE:
+                ys = [kd(rec_of[b], b, div, gran) for b in BATCHES]
+                ax.plot(np.arange(len(BATCHES)), ys, color=col, ls=ls, marker=mk, ms=6, lw=1.8,
+                        label=f"{lrlab} · {gran}")
+        ax.axhline(0, color="#333", lw=1)
+        ax.set_title(SHORT[div], fontsize=11, fontweight="bold")
+        ax.set_xticks(np.arange(len(BATCHES))); ax.set_xticklabels([f"b{b}" for b in BATCHES])
+        ax.grid(axis="y", ls=":", alpha=0.4)
+    for r in range(2):
+        axp[r][0].set_ylabel("kln Δ = acc(+kln) − acc(no-kln)")
+    axp[0][0].legend(fontsize=7.5, loc="best", framealpha=0.95, ncol=2)
+    figp.suptitle("Stage B · Qwen3-1.7B · kln Δ per divergence across the batch×lr grid "
+                  "(blue lr5e-6 / red lr5e-5 · solid token / dashed newline) — lr5e-5 drives the swings, batch-flat",
+                  fontsize=11, y=1.0)
+    figp.tight_layout()
+    figp.savefig(args.out + "_per-div.png", dpi=150, bbox_inches="tight")
+    print("wrote", args.out + "_per-div.png")
 
     for gran in ["token", "newline"]:
         print(f"\n{gran}: mean|Δ| (signed mean Δ) per cell")
