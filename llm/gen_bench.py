@@ -6,7 +6,10 @@ gen_alpaca.py to the 3 eval sets: AlpacaEval 2.0 (single-turn), Arena-Hard v2 (s
 Output format (--format):
   · alpaca   : [{"instruction", "output", "generator"}]           (single-turn; AlpacaEval / alpaca_eval)
   · fastchat : JSONL {"question_id", "model_id", "choices":[{"index":0,"turns":[resp0(,resp1)]}]}
-               (the shared Arena-Hard-auto / FastChat MT-Bench model_answer schema)
+               (FastChat MT-Bench model_answer schema — data/mt_bench/model_answer/{model}.jsonl)
+  · arenav2  : JSONL {"uid","ans_id","model","messages":[{user},{assistant:{content:{answer}}}],
+               "tstamp","metadata":{token_len}}  (Arena-Hard v2.0 schema — judge reads
+               messages[-1]["content"]["answer"]; drop into data/arena-hard-v2.0/model_answer/{model}.jsonl)
 
 Input JSONL (one record/line) — fields tried in order:
   · question_id ← question_id | uid | id | (running index)
@@ -56,7 +59,7 @@ def main():
     ap.add_argument("--model", required=True, help="policy or SFT baseline checkpoint dir")
     ap.add_argument("--prompts", required=True)
     ap.add_argument("--generator", required=True, help="model name tag in the output")
-    ap.add_argument("--format", choices=["alpaca", "fastchat"], default="fastchat")
+    ap.add_argument("--format", choices=["alpaca", "fastchat", "arenav2"], default="fastchat")
     ap.add_argument("--max-new", type=int, default=1024)
     ap.add_argument("--temperature", type=float, default=0.0, help="0 = greedy (default); >0 = sampling")
     ap.add_argument("--max-prompts", type=int, default=0, help="0 = all")
@@ -86,7 +89,8 @@ def main():
     else:
         gen_kw.update(do_sample=False)
 
-    alpaca_out, fastchat_out, t0 = [], [], time.time()
+    import hashlib
+    rows, t0 = [], time.time()
     for i, (qid, turns) in enumerate(Q):
         msgs, responses = [], []
         for turn in turns:                          # multi-turn: model's own prior turns stay in context
@@ -98,19 +102,26 @@ def main():
             responses.append(resp)
             msgs.append({"role": "assistant", "content": resp})
         if args.format == "alpaca":
-            alpaca_out.append({"instruction": turns[0], "output": responses[0], "generator": args.generator})
-        else:
-            fastchat_out.append({"question_id": qid, "model_id": args.generator,
-                                 "choices": [{"index": 0, "turns": responses}]})
+            rows.append({"instruction": turns[0], "output": responses[0], "generator": args.generator})
+        elif args.format == "fastchat":             # MT-Bench model_answer schema
+            rows.append({"question_id": qid, "model_id": args.generator,
+                         "choices": [{"index": 0, "turns": responses}]})
+        else:                                       # arenav2: judge reads messages[-1].content.answer
+            ans_id = hashlib.md5(f"{qid}-{args.generator}".encode()).hexdigest()[:22]
+            tlen = len(tok(responses[0], add_special_tokens=False).input_ids)
+            rows.append({"uid": qid, "ans_id": ans_id, "model": args.generator,
+                         "messages": [{"role": "user", "content": turns[0]},
+                                      {"role": "assistant", "content": {"answer": responses[0]}}],
+                         "tstamp": time.time(), "metadata": {"token_len": tlen}})
         if (i + 1) % 25 == 0:
             print(f"  {i + 1}/{len(Q)}  {time.time() - t0:.0f}s", flush=True)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     if args.format == "alpaca":
-        json.dump(alpaca_out, open(args.out, "w"), indent=2)
-    else:
+        json.dump(rows, open(args.out, "w"), indent=2)
+    else:                                           # fastchat / arenav2 → JSONL
         with open(args.out, "w") as f:
-            for r in fastchat_out:
+            for r in rows:
                 f.write(json.dumps(r) + "\n")
     print(f"wrote {args.out}  ({len(Q)} questions, {time.time() - t0:.0f}s)")
 
