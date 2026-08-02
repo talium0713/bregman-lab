@@ -19,7 +19,10 @@ DIVS = ["kl", "adiv", "rkl", "js", "hel", "chi2"]
 def _le(f):
     if not os.path.exists(f):
         return None
-    h = json.load(open(f))["history"]; e = [x for x in h if "eval_acc" in x]
+    d = json.load(open(f)); h = d["history"]; tot = d["args"].get("steps", 1)
+    if not h or h[-1]["step"] < 0.9 * tot:      # DROP incomplete/cut-short runs (e.g. ECC-killed at step 1)
+        return None
+    e = [x for x in h if "eval_acc" in x]
     return e[-1]["eval_acc"] if e else None
 
 
