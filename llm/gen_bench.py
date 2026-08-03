@@ -95,10 +95,10 @@ def main():
         msgs, responses = [], []
         for turn in turns:                          # multi-turn: model's own prior turns stay in context
             msgs.append({"role": "user", "content": turn})
-            ids = tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True,
-                                          return_tensors="pt", **kw).to("cuda")
-            g = model.generate(ids, **gen_kw)
-            resp = tok.decode(g[0, ids.shape[1]:], skip_special_tokens=True).strip()
+            text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **kw)
+            enc = tok(text, return_tensors="pt", add_special_tokens=False).to("cuda")  # template already has specials
+            g = model.generate(**enc, **gen_kw)
+            resp = tok.decode(g[0, enc["input_ids"].shape[1]:], skip_special_tokens=True).strip()
             responses.append(resp)
             msgs.append({"role": "assistant", "content": resp})
         if args.format == "alpaca":

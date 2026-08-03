@@ -60,10 +60,11 @@ def main():
         prompts = prompts[:args.max_prompts]
     out, t0 = [], time.time()
     for i, instr in enumerate(prompts):
-        ids = tok.apply_chat_template([{"role": "user", "content": instr}], tokenize=True,
-                                      add_generation_prompt=True, return_tensors="pt", **kw).to("cuda")
-        g = model.generate(ids, max_new_tokens=args.max_new, do_sample=False, pad_token_id=tok.eos_token_id)
-        text = tok.decode(g[0, ids.shape[1]:], skip_special_tokens=True).strip()
+        prompt = tok.apply_chat_template([{"role": "user", "content": instr}], tokenize=False,
+                                         add_generation_prompt=True, **kw)
+        enc = tok(prompt, return_tensors="pt", add_special_tokens=False).to("cuda")  # template already has specials
+        g = model.generate(**enc, max_new_tokens=args.max_new, do_sample=False, pad_token_id=tok.eos_token_id)
+        text = tok.decode(g[0, enc["input_ids"].shape[1]:], skip_special_tokens=True).strip()
         out.append({"instruction": instr, "output": text, "generator": args.generator})
         if (i + 1) % 50 == 0:
             print(f"  {i + 1}/{len(prompts)}  {time.time() - t0:.0f}s", flush=True)
