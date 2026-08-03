@@ -61,6 +61,7 @@ def main():
     ap.add_argument("--generator", required=True, help="model name tag in the output")
     ap.add_argument("--format", choices=["alpaca", "fastchat", "arenav2"], default="fastchat")
     ap.add_argument("--max-new", type=int, default=1024)
+    ap.add_argument("--batch-size", type=int, default=16, help="batched generation for single-turn sets (arena/alpaca); MT-Bench multi-turn runs sequentially")
     ap.add_argument("--temperature", type=float, default=0.0, help="0 = greedy (default); >0 = sampling")
     ap.add_argument("--max-prompts", type=int, default=0, help="0 = all")
     ap.add_argument("--out", required=True)
@@ -90,17 +91,12 @@ def main():
         gen_kw.update(do_sample=False)
 
     import hashlib
-    rows, t0 = [], time.time()
-    for i, (qid, turns) in enumerate(Q):
-        msgs, responses = [], []
-        for turn in turns:                          # multi-turn: model's own prior turns stay in context
-            msgs.append({"role": "user", "content": turn})
-            text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **kw)
-            enc = tok(text, return_tensors="pt", add_special_tokens=False).to("cuda")  # template already has specials
-            g = model.generate(**enc, **gen_kw)
-            resp = tok.decode(g[0, enc["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-            responses.append(resp)
-            msgs.append({"role": "assistant", "content": resp})
+    tok.padding_side = "left"                        # decoder-only batched generation needs left padding
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    rows = []
+
+    def emit(qid, turns, responses):
         if args.format == "alpaca":
             rows.append({"instruction": turns[0], "output": responses[0], "generator": args.generator})
         elif args.format == "fastchat":             # MT-Bench model_answer schema
@@ -113,8 +109,34 @@ def main():
                          "messages": [{"role": "user", "content": turns[0]},
                                       {"role": "assistant", "content": {"answer": responses[0]}}],
                          "tstamp": time.time(), "metadata": {"token_len": tlen}})
-        if (i + 1) % 25 == 0:
-            print(f"  {i + 1}/{len(Q)}  {time.time() - t0:.0f}s", flush=True)
+
+    t0 = time.time()
+    single_turn = all(len(t) == 1 for _, t in Q)
+    if single_turn and args.batch_size > 1:          # BATCHED (AlpacaEval / Arena-Hard) — ~10× faster
+        for b0 in range(0, len(Q), args.batch_size):
+            batch = Q[b0:b0 + args.batch_size]
+            texts = [tok.apply_chat_template([{"role": "user", "content": t[0]}], tokenize=False,
+                                             add_generation_prompt=True, **kw) for _, t in batch]
+            enc = tok(texts, return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
+            g = model.generate(**enc, **gen_kw)
+            plen = enc["input_ids"].shape[1]
+            for j, (qid, t) in enumerate(batch):
+                resp = tok.decode(g[j, plen:], skip_special_tokens=True).strip()
+                emit(qid, [t[0]], [resp])
+            print(f"  {min(b0 + args.batch_size, len(Q))}/{len(Q)}  {time.time() - t0:.0f}s", flush=True)
+    else:                                            # sequential (MT-Bench multi-turn, or --batch-size 1)
+        for i, (qid, turns) in enumerate(Q):
+            msgs, responses = [], []
+            for turn in turns:                       # model's own prior turns stay in context
+                msgs.append({"role": "user", "content": turn})
+                text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **kw)
+                enc = tok(text, return_tensors="pt", add_special_tokens=False).to("cuda")
+                g = model.generate(**enc, **gen_kw)
+                resp = tok.decode(g[0, enc["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+                responses.append(resp); msgs.append({"role": "assistant", "content": resp})
+            emit(qid, turns, responses)
+            if (i + 1) % 25 == 0:
+                print(f"  {i + 1}/{len(Q)}  {time.time() - t0:.0f}s", flush=True)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     if args.format == "alpaca":
