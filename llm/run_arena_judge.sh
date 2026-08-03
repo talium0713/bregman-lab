@@ -17,6 +17,13 @@ JUDGE="${JUDGE:-gpt-4.1}"
 [ -n "${OPENAI_API_KEY:-}" ] || { echo "no OPENAI_API_KEY — export it or put it in $(pwd)/openai_key.txt"; exit 1; }
 ls results/bench/arena/*.jsonl >/dev/null 2>&1 || { echo "no results/bench/arena/*.jsonl — run gen_bench_arena.slrm first"; exit 1; }
 
+# ── isolated judge venv (do NOT pollute venv_gpu — arena reqs can downgrade torch/transformers) ──
+module load StdEnv/2023 python/3.11 2>/dev/null || true
+JUDGE_ENV="${JUDGE_ENV:-$HOME/arena_judge_env}"
+[ -d "$JUDGE_ENV" ] || python -m venv "$JUDGE_ENV"
+source "$JUDGE_ENV/bin/activate"
+python -m pip install -q --upgrade pip
+
 # ── one-time: clone repo + HF data (questions + per-category baseline answers) + install ──
 if [ ! -d "$ARENA_DIR" ]; then
   echo "=== cloning arena-hard-auto + data (one-time) ==="
@@ -26,6 +33,8 @@ if [ ! -d "$ARENA_DIR" ]; then
   cp -r "$ARENA_DIR/_hfdata/data" "$ARENA_DIR/"
   ( cd "$ARENA_DIR" && pip install -r requirements.txt && pip install -r requirements-optional.txt pyyaml )
 fi
+pip install -q pyyaml openai 2>/dev/null || true    # ensure config-patch + judge deps present
+python -c "import torch" 2>/dev/null || pip install -q --no-index torch 2>/dev/null || pip install -q torch    # show_result.py imports torch (Bradley-Terry)
 
 # ── drop our generated answers into the repo's model_answer dir ──
 DST="$ARENA_DIR/data/arena-hard-v2.0/model_answer"; mkdir -p "$DST"
