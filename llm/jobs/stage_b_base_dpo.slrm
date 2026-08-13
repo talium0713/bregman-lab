@@ -1,0 +1,41 @@
+#!/bin/bash
+# Base -> DPO (NO UltraChat SFT): standard DPO (= RKL, div kl, single-sample, token-level) trained
+# DIRECTLY on Qwen3-1.7B-Base (pi_init = pi_ref = base, u=1 at init — RKL/standard DPO trains fine from
+# there, no freeze, so no init-noise). Tests whether skipping the (weak) UltraChat SFT helps the
+# benchmark numbers. f-DPO (divergence variants) come after this baseline check.
+#   1 task: RKL token. Same optimizer knobs as the settled recipe (lr 5e-6, batch 64, 2ep, UF-full).
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001 jobs/stage_b_base_dpo.slrm
+# Output: results/bench/stageB_kl_basedpo_token_bench1p7b_policy (+ .json curve)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=stageBbasedpo
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=20:00:00
+#SBATCH --output=logs/%x-%A.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+echo "=== Base->DPO (RKL token, no UltraChat SFT) on $(hostname) | $(date) ==="; nvidia-smi
+
+# standard DPO directly on Qwen3-1.7B-Base (ref=init=base, no init-noise); RKL token single-sample.
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy Qwen/Qwen3-1.7B-Base \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div kl --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/bench/stageB_kl_basedpo_token_bench1p7b"
+
+echo "=== done Base->DPO | $(date) ==="
