@@ -1,0 +1,41 @@
+#!/bin/bash
+# Arena-Hard v0.1 GENERATION (offline GPU): greedy 2048-tok answers on the 500 v0.1 prompts for
+# Qwen3-1.7B-Base (raw) + sft_base (UltraChat-SFT) — to test on the report-comparable version (anchor =
+# gpt-4-0314, weaker, so 1.7B is NOT at the floor). v0.1 uses the SAME answer schema as v2 (arenav2).
+# Add more models by extending MODELS below (e.g. our RKL / Base->DPO policies).
+#   task 0 = Base · task 1 = sft_base.
+# Needs data/arena_hard_v01.jsonl (copied from the arena-hard-auto repo). Submit FROM llm/:
+#   sbatch --exclude=kn010,kn001 jobs/gen_arena_v01.slrm
+# Output: results/bench/arena_v01/{tag}.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=genarenav01
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+# tag:checkpoint
+MODELS=(
+  "Qwen3-1.7B-Base:Qwen/Qwen3-1.7B-Base"
+  "sft_base:results/sft_uc_1p7b_model"
+)
+E="${MODELS[$SLURM_ARRAY_TASK_ID]}"; TAG="${E%%:*}"; CKPT="${E#*:}"
+
+echo "=== gen Arena-Hard v0.1 [$TAG] from $CKPT on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$CKPT" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --max-new 2048 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG -> results/bench/arena_v01/${TAG}.jsonl | $(date) ==="
