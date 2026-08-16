@@ -1,7 +1,7 @@
 # LLM DPO track — Killarney
 
-LLM-scale side of the admissibility project (parallel to `../killarney/`, which is the CPU tabular
-reproduction). Goal is unchanged: reproduce the §1–3 mechanism — the admissible divergence (RKL)
+LLM-scale side of the permissibility project (parallel to `../killarney/`, which is the CPU tabular
+reproduction). Goal is unchanged: reproduce the §1–3 mechanism — the permissible divergence (RKL)
 has a **noise-free off-policy inner term**, every other divergence's inner term is noisy, and the
 gap widens with vocabulary size / off-policyness.
 
@@ -78,9 +78,9 @@ sbatch jobs/stage_b.slrm
 ```
 
 `--inner exact` = full-vocab C_Ω (fp32, π_θ-weighted → tail-tamed); `--inner sample` = single logged
-token (realistic off-policy, heavy-tailed for non-admissible). 1.7B pilot on 1× L40S first; 4B via
+token (realistic off-policy, heavy-tailed for non-permissible). 1.7B pilot on 1× L40S first; 4B via
 **2× L40S + FSDP** is the next step (not yet wired — `stage_b_train.py` is currently single-GPU).
-Prediction: RKL invariant across arms; non-admissible degrade under `sample`, recover under `exact`.
+Prediction: RKL invariant across arms; non-permissible degrade under `sample`, recover under `exact`.
 Length-bias measurement needs generation (separate eval, TODO). χ²/euc reported separately.
 
 ## Notes / open items

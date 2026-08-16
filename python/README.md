@@ -1,4 +1,4 @@
-# Off-policy admissibility — Python port (verifiable)
+# Off-policy permissibility — Python port (verifiable)
 
 A clean Python reimplementation of the experiment currently written in JS
 (`src/core/math.js` + `src/tasks/task3-admissibility.js`), so you can read it against the
@@ -28,7 +28,7 @@ python3 -m pip install --user streamlit      # once
 python3 -m streamlit run app.py              # opens http://localhost:8501
 ```
 
-Tabs: ① calibration & admissibility · ② §4.2 inner-term variance · ③ §4.3 n_mc sweep (on/off,
+Tabs: ① calibration & permissibility · ② §4.2 inner-term variance · ③ §4.3 n_mc sweep (on/off,
 behind a Run button — the heavy one) · ④ policy recovery π* vs π_θ · ⑤ α-div morph. Sidebar
 sliders: peak, ε, depth, α-div parameter a, N_pairs, steps, seeds, batch. (`review.html` stays as
 the written-up work log; `app.py` is the interactive console.)
@@ -72,7 +72,7 @@ KL is sampled by the **identical** fully-sampled procedure as the other six; eac
 `Φ(u_{a_i})`, and for KL that arithmetic simply lands on `1` every time. So KL is *"always
 sampling, but the value is constant"* — exactly the fair behaviour you asked for. Verified: the
 generic `Φ/Φ'` match the old closed forms to ~1e-15, `Φ_KL ≡ 1` (spread ~0), `Φ'_KL ≈ 0` (~1e-15
-residual, *not* a literal 0). `regularizers.is_admissible(rk)` then CHECKS `Var_a[Φ]≈0` over
+residual, *not* a literal 0). `regularizers.is_permissible(rk)` then CHECKS `Var_a[Φ]≈0` over
 random policies — `True` for `kl` only.
 
 ### Why the (single, fully-sampled) Φ-form estimator gives KL zero variance
@@ -99,10 +99,10 @@ post(a | s') ∝ π_behave(a)·P(s'|a)        # posterior over which a generated
 violation(ε) = sqrt( Σ_{s'} P(s')·Var_{a|s'}[ c_a ] )
 ```
 At `ε=0` each `s'` has a one-action posterior ⇒ `violation=0` ⇒ `c(s')` is well-defined
-(**admissible**). As `ε` grows, an *action-indexed* `c(a')` can no longer be folded into a
+(**permissible**). As `ε` grows, an *action-indexed* `c(a')` can no longer be folded into a
 state function and leaks irreducible variance. Verified: `violation(0)=0.000`,
 `violation(0.2)=0.293`. This is the JS author's geometric illustration of Theorem 2's
-admissibility boundary; `c_probe.png` reproduces it.
+permissibility boundary; `c_probe.png` reproduces it.
 
 ### Arbitrary reference policy `π_ref`
 
@@ -117,14 +117,14 @@ function accepts a `ref` argument and respects it (`u_a := π_a / ref_a`):
   array (per-state reference). `mdp.resolve_ref` normalizes all three.
 
 Sanity-checked: with a non-uniform `ref` the whole pipeline (calibration → solve → train) runs,
-and **`C_KL = 1` for *any* `ref` and any policy** — KL stays admissible regardless of the
+and **`C_KL = 1` for *any* `ref` and any policy** — KL stays permissible regardless of the
 reference, exactly as Theorem 2 says (`c(s')` depends on `s'` only through `π_ref(·|s')`).
 
 ### On/off-policy inner term (`draw_inner` in `dpo.py`)
 - **on-policy**: draw `n_mc` fresh `a' ~ π(·|s')` and average `Φ` (Eq 15). `n_mc` matters.
 - **off-policy (extreme)**: use the single *logged* next action `a'_data` (drawn from the
   uniform behaviour policy), no resampling. The estimate is biased by
-  `E_uniform[Φ] − E_{π*}[Φ]`; `n_mc` has no leverage. Sharpest non-admissibility demo.
+  `E_uniform[Φ] − E_{π*}[Φ]`; `n_mc` has no leverage. Sharpest non-permissibility demo.
 - **KL**: no short-circuit — `Φ_KL≡1` makes every draw equal to the constant (variance 0) and
   it cancels in `d = S_w − S_l` (equal #inner-terms per fixed-depth trajectory), so KL is
   exactly noise-free at every `n_mc` and in both A/B modes, *by the math*.
@@ -147,6 +147,6 @@ can choose:
 | BT oracle temp | `β_or = 1` | implicit `1` (return diff) | — matches |
 | seeds | 5 | configurable (`n_seeds`) | — |
 
-None of these change the *qualitative* admissibility result (KL flat across `n_mc`; non-KL
+None of these change the *qualitative* permissibility result (KL flat across `n_mc`; non-KL
 improve with `n_mc`), but they change absolute numbers, so pick deliberately before quoting
 figures in the paper.

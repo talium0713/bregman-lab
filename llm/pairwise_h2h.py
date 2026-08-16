@@ -60,26 +60,25 @@ def winner(v):
         return v.split("<")[-1].strip()[:1]     # right side is better
     return None
 
+ANSWERS_DIR = "results/bench/arena_v01"   # overridden by --answers-dir
 def load(tag):
     m = {}
-    for l in open(f"results/bench/arena_v01/{tag}.jsonl"):
+    for l in open(os.path.join(ANSWERS_DIR, f"{tag}.jsonl")):
         if l.strip():
             r = json.loads(l); a = r["messages"][-1]["content"]
             a = a.get("answer", "") if isinstance(a, dict) else a
             m[r["uid"]] = (r["messages"][0]["content"], a)
     return m
 
-_key = os.environ.get("OPENAI_API_KEY") or ""
-if len(_key) < 40 and os.path.exists("openai_key.txt"):   # robust: read the key file directly (no fragile tr)
-    _key = open("openai_key.txt").read().strip()
-client = OpenAI(api_key=_key)
+client = None                 # set in main() (supports OpenAI or any OpenAI-compatible --base-url)
+MODEL = "gpt-4.1-2025-04-14"  # overridden by --judge-model
 _first_err = [True]           # surface the first API error (don't silently swallow 401/quota for 40 min)
 def call(q, ansA, ansB, tries=4):
     user = TEMPLATE.format(QUESTION=q, ANSWER_A=ansA, ANSWER_B=ansB)
     for t in range(tries):
         try:
             r = client.chat.completions.create(
-                model="gpt-4.1-2025-04-14",
+                model=MODEL,
                 messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
                 temperature=0.0, max_tokens=4096)
             return get_verdict(r.choices[0].message.content or "")
@@ -109,7 +108,25 @@ def main():
     ap.add_argument("--b", required=True, help="model-b tag (opponent)")
     ap.add_argument("--parallel", type=int, default=8)
     ap.add_argument("--out", default="logs/h2h.json")
+    ap.add_argument("--base-url", default=None,
+                    help="OpenAI-compatible endpoint (e.g. http://host:PORT/v1). Omit for OpenAI.")
+    ap.add_argument("--judge-model", default="gpt-4.1-2025-04-14", help="judge model id served at --base-url")
+    ap.add_argument("--key-file", default="openai_key.txt",
+                    help="file with the API key; for a keyless local server this is ignored (dummy key used)")
+    ap.add_argument("--answers-dir", default="results/bench/arena_v01",
+                    help="dir holding the {tag}.jsonl answer files")
     args = ap.parse_args()
+
+    global client, MODEL, ANSWERS_DIR
+    ANSWERS_DIR = args.answers_dir
+    MODEL = args.judge_model
+    key = ""
+    if os.path.exists(args.key_file):
+        key = open(args.key_file).read().strip()
+    if not key:
+        key = "EMPTY"        # local OpenAI-compatible servers accept any non-empty key
+    client = OpenAI(base_url=args.base_url, api_key=key)
+    print(f"judge={MODEL}  base_url={args.base_url or 'api.openai.com'}  parallel={args.parallel}", flush=True)
 
     A, B = load(args.a), load(args.b)
     uids = [u for u in A if u in B]
@@ -128,7 +145,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.parallel) as ex:
         fut = {ex.submit(game, u, A[u][0], A[u][1], B[u][1], pos): (u, pos) for u, pos in jobs}
         for f in as_completed(fut):
-            u, pos = fut[f]
+            u = fut[f][0]
             results.setdefault(u, []).append(f.result())
             done += 1
             if done % 100 == 0:
