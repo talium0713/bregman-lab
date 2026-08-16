@@ -1,5 +1,10 @@
 # LLM DPO track — Killarney
 
+> **Minimal `onboarding` branch:** this slice keeps the current **base→*f*-DPO permissibility
+> benchmark** pipeline. Some files mentioned below (Stage A `stage_a_measure.py`/`jobs/stage_a.slrm`,
+> the original 13-way `jobs/stage_b.slrm` sweep, `../killarney/`) are exploratory and live on **`main`**.
+> For the current pipeline + results, see the repo-root `ONBOARDING.md`.
+
 LLM-scale side of the permissibility project (parallel to `../killarney/`, which is the CPU tabular
 reproduction). Goal is unchanged: reproduce the §1–3 mechanism — the permissible divergence (RKL)
 has a **noise-free off-policy inner term**, every other divergence's inner term is noisy, and the

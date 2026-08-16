@@ -13,7 +13,7 @@ module load StdEnv/2023 python/3.11 2>/dev/null || true
 ENV="${ALPACA_ENV:-$HOME/alpaca_judge_env}"
 [ -d "$ENV" ] || python -m venv "$ENV"
 source "$ENV/bin/activate"
-python -c "import alpaca_eval" 2>/dev/null || pip install -q alpaca-eval
+python -c "import alpaca_eval" 2>/dev/null || pip install -q alpaca-eval --index-url https://pypi.org/simple/
 
 for f in "$@"; do
   [ -f "$f" ] || { echo "skip (missing): $f"; continue; }

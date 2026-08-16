@@ -19,7 +19,7 @@ source "$ENV/bin/activate"
 python -m pip install -q --upgrade pip
 if [ ! -d "$FC" ]; then
   git clone https://github.com/lm-sys/FastChat.git "$FC"
-  ( cd "$FC" && pip install -q -e ".[model_worker,llm_judge]" )
+  ( cd "$FC" && pip install -q -e ".[model_worker,llm_judge]" --index-url https://pypi.org/simple/ )
 fi
 pip install -q openai anthropic 2>/dev/null || true
 JUDGE_DIR="$FC/fastchat/llm_judge"; mkdir -p "$JUDGE_DIR/data/mt_bench/model_answer"

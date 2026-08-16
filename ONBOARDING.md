@@ -4,6 +4,10 @@
 > concept). The paper draft `Off_policy_admissibility.pdf` and the older `README.md` / `llm/README.md`
 > still say "admissibility" — read it as "permissibility". New docs/figures use permissibility.
 
+> **This `onboarding` branch is a minimal distribution** — it ships only the **`llm/`** track (the
+> active work) + the paper. The "Theory viz" (`src/`) and "Tabular proof" (`python/`) tracks described
+> below live in the **full repo on `main`**; clone `main` if you need them.
+
 ## The one-sentence thesis
 Among all *f*-divergences used as the DPO regularizer, **reverse-KL (RKL = standard DPO) is uniquely
 "permissible" off-policy**: its per-token inner term is noise-free, so its gradient is a valid
@@ -127,7 +131,8 @@ cluster has no working `datasets`/pyarrow).
 
 ## Fast start for a new researcher
 1. Read the paper `Off_policy_admissibility.pdf` (§1–4) — the mechanism.
-2. Run the tabular proof locally: `cd python && QUICK=1 python run_part3.py && python verify.py`.
+2. Look at the two result figures: `llm/results/stageB_divergence_{wr,h2h}.{png,pdf}`.
 3. Skim `llm/README.md` (Stage A/B design) then this doc's pipeline section for the current state.
-4. Look at the two result figures in `llm/results/stageB_divergence_*.{png,pdf}`.
+4. Reproduce: follow the pipeline section (train → gen → judge → figures).
 5. To touch the cluster: get an `aip-rudner` allocation, read the gotchas above.
+6. (Optional, on `main`) the tabular proof: `cd python && QUICK=1 python run_part3.py && python verify.py`.
