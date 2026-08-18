@@ -112,8 +112,9 @@ cluster has no working `datasets`/pyarrow).
 ```bash
 # 1) your OWN working copy — on YOUR scratch ($USER = your login, NOT talium):
 git clone -b onboarding https://github.com/talium0713/bregman-lab.git /scratch/$USER/bregman-lab
-cd /scratch/$USER/bregman-lab/llm
-bash setup_env_gpu.sh && bash prefetch.sh          # 2) GPU venv + HF base models
+cd /scratch/$USER/bregman-lab
+bash check_access.sh                               # verify you can read the shared backup (read-only; see below)
+cd llm && bash setup_env_gpu.sh && bash prefetch.sh   # 2) GPU venv + HF base models
 # 3) shared SFT models + UltraFeedback data from the group backup (Taehyun's, group-readable):
 SRC=~/projects/aip-rudner/talium/bregman-backup
 rsync -a "$SRC"/models/ results/                   # SFT bases (results/sft_uc_1p7b_model, …) for the sft_base baseline
@@ -121,9 +122,10 @@ rsync -a "$SRC"/data/   data/                       # uf_pairs_*.jsonl, ultracha
 # 4) run the pipeline above (train → gen → judge → figures). The trained policies + Arena answers are
 #    NOT in the backup (too big); the pipeline regenerates them.
 ```
-Can't read `$SRC` (permissions, or you're not in `aip-rudner`)? Ask Taehyun to make it group-readable
-(`chmod -R g+rX ~/projects/aip-rudner/talium/bregman-backup`) or to copy the needed artifacts to a
-shared spot.
+`check_access.sh` (repo root, read-only) checks your group membership + the traversal chain + a real
+read of each key file, and prints exactly which item is blocked. If it fails and you *are* in
+`aip-rudner`, send Taehyun its output (it dumps `namei -l` for the blocked paths) — the fix is usually
+`chgrp -R aip-rudner` + `chmod -R g+rX` on the backup.
 
 - **venvs**: GPU `venv_gpu`; judge `~/arena_judge_env` (torch + the arena repo cloned at `~/arena-hard-auto`).
 - **Secrets**: OpenAI key in `llm/openai_key.txt` (gitignored, never committed). A local judge needs no key.
