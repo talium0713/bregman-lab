@@ -66,7 +66,10 @@ Full write-ups live in Notion: **"Recipe for Experiments"** (the recipe + the �
 
 ## Current LLM benchmark pipeline (how to reproduce / extend)
 
-Everything runs on **Killarney** from `/scratch/$USER/bregman-lab/llm`. Three stages:
+Everything runs on **Killarney** from **your own** working copy at `/scratch/$USER/bregman-lab/llm`
+(`$USER` = *your* login — `/scratch` is **private per-user**, so this is a directory you create, not a
+shared one; see *Environments & storage* below for the one-time setup + where the shared models/data
+are). Three stages:
 
 **1. Train a policy** (GPU job). Settled recipe = π_init=π_ref (+init-noise) · β 0.1 · lr 5e-6 linear ·
 2 ep · batch 64 · clamp 15 · single-sample · token-level.
@@ -96,15 +99,34 @@ cluster has no working `datasets`/pyarrow).
 
 ---
 
-## Environments & infra
-- **Cluster**: Killarney (Alliance), account `aip-rudner`. Work from `/scratch/$USER/bregman-lab`
-  (`/project` is the full 5 TB group share). GPU venv `venv_gpu`; judge venv `~/arena_judge_env`
-  (isolated, has torch + the arena repo cloned at `~/arena-hard-auto`).
-- **Backup**: `/scratch` is auto-purged (~60 d, no backup). Snapshot at
-  `~/projects/aip-rudner/$USER/bregman-backup` (models + data + small results). Code → git
-  (`github.com/talium0713/bregman-lab`, public).
-- **Secrets**: OpenAI key in `llm/openai_key.txt` (gitignored, never committed). A local judge needs
-  no key.
+## Environments & storage
+**Storage model — this is what trips people up.** `$USER` always means *your own* login.
+- `/scratch/$USER/` — **your private** per-user space (~2 TB, auto-purged ~60 d). It is **not shared**:
+  you cannot see anyone else's `/scratch` (so `/scratch/talium/…` is invisible to you, and yours to
+  them). **Your working copy of the repo lives here.**
+- `~/projects/aip-rudner/` — the **shared 5 TB group** project space; every `aip-rudner` member can
+  read it. The shared **models + data** live here (`~/projects/aip-rudner/talium/bregman-backup`).
+- `/home` — small, persistent, private.
+
+**First-time setup (new researcher, in the `aip-rudner` group):**
+```bash
+# 1) your OWN working copy — on YOUR scratch ($USER = your login, NOT talium):
+git clone -b onboarding https://github.com/talium0713/bregman-lab.git /scratch/$USER/bregman-lab
+cd /scratch/$USER/bregman-lab/llm
+bash setup_env_gpu.sh && bash prefetch.sh          # 2) GPU venv + HF base models
+# 3) shared SFT models + UltraFeedback data from the group backup (Taehyun's, group-readable):
+SRC=~/projects/aip-rudner/talium/bregman-backup
+rsync -a "$SRC"/models/ results/                   # SFT bases (results/sft_uc_1p7b_model, …) for the sft_base baseline
+rsync -a "$SRC"/data/   data/                       # uf_pairs_*.jsonl, ultrachat, …
+# 4) run the pipeline above (train → gen → judge → figures). The trained policies + Arena answers are
+#    NOT in the backup (too big); the pipeline regenerates them.
+```
+Can't read `$SRC` (permissions, or you're not in `aip-rudner`)? Ask Taehyun to make it group-readable
+(`chmod -R g+rX ~/projects/aip-rudner/talium/bregman-backup`) or to copy the needed artifacts to a
+shared spot.
+
+- **venvs**: GPU `venv_gpu`; judge `~/arena_judge_env` (torch + the arena repo cloned at `~/arena-hard-auto`).
+- **Secrets**: OpenAI key in `llm/openai_key.txt` (gitignored, never committed). A local judge needs no key.
 - **Local (Mac)**: figures + data prep (`pip install datasets openai`). No GPU needed.
 
 ## Critical gotchas (will bite you)

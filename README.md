@@ -36,7 +36,10 @@ on Qwen3-1.7B: **only RKL beats the untrained base** (Arena-Hard v0.1 WR 14.8 vs
 *below* it. RKL and FKL have **identical** held-out accuracy (0.706) yet RKL wins **68.3%**
 head-to-head. See `llm/results/stageB_divergence_{wr,h2h}.png` and `ONBOARDING.md`.
 
-## Reproduce (Killarney, from `llm/`)
+## Reproduce (Killarney)
+First-time setup — clone into **your own** `/scratch/$USER/` (it's private per-user, not a shared
+path) and pull the shared SFT models + UltraFeedback data from the group backup. Full steps in
+[`ONBOARDING.md`](ONBOARDING.md) → *Environments & storage*. Then, from `llm/`:
 ```bash
 sbatch --exclude=kn010,kn001,kn035 jobs/stage_b_base_fdpo.slrm   # train base->f-DPO (6 divergences)
 sbatch --exclude=kn010,kn001,kn035 jobs/gen_base_fdpo_arena.slrm # generate (RePO-match)
