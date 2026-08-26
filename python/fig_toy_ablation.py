@@ -67,8 +67,8 @@ def main():
     axL.axhline(1.0, color="0.6", ls=":", lw=1, zorder=1)
     axL.set_xscale("log"); axL.set_yscale("log")
     axL.set_xlabel(r"$u = \pi_\theta/\pi_{\mathrm{ref}}$  (small $u$ = off-policy)")
-    axL.set_ylabel(r"$|\Phi(u)| = |f'(u)-f(u)/u|$")
-    axL.set_title(r"root cause: $\Phi_{\mathrm{RKL}}\equiv 1$, others diverge as $u\to0$")
+    axL.set_ylabel(r"$|\Psi(u)| = |f'(u)-f(u)/u|$")
+    axL.set_title(r"root cause: $\Psi_{\mathrm{RKL}}\equiv 1$, others diverge as $u\to0$")
     axL.legend(ncol=2, fontsize=9, framealpha=0.9, loc="upper right")
 
     # ---- Right (broken y-axis): non-admissible band on top, RKL ≈ 0 on bottom ----
@@ -90,7 +90,7 @@ def main():
     handles = [Line2D([0], [0], color=COLORS[k], lw=3.0 if k == "kl" else 1.9,
                       marker="o", ms=4, label=SHORT[k]) for k in KEYS]
     axRt.legend(handles=handles, ncol=3, fontsize=8, framealpha=0.9, loc="upper left")
-    axRt.set_title(r"toy: off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Phi(u_a)]$ vs |A|  (median ± IQR)")
+    axRt.set_title(r"off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Psi(u_a)]$ vs |A|  (median ± IQR)")
     axRt.text(2.6, 2.4e4, "|A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="center")
     axRt.text(152000, 2.4e4, "|A|=152k (Qwen) ", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="right")
 
@@ -106,9 +106,9 @@ def main():
     axRt.spines["bottom"].set_visible(False); axRt.tick_params(which="both", bottom=False, labelbottom=False)
     axRb.spines["top"].set_visible(False); axRb.tick_params(which="both", top=False)
 
-    fig.suptitle("Toy (π_ref uniform, Gaussian logits): RKL noise-free at every |A|; non-admissible "
-                 "noise rises monotonically — magnitude toy-dependent, Stage A measures reality",
-                 fontsize=10.5, y=0.99)
+    # B1: suptitle removed. Caption items → π_ref uniform + Gaussian logits (toy); RKL noise-free at
+    # every |A|, non-permissible noise rises monotonically; magnitude is toy-dependent (Stage A / L12
+    # measures the real magnitude).
     fig.tight_layout()
 
     # wavy break marks (물결선) across the gap between the two right panels — two parallel squiggles

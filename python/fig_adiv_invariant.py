@@ -49,21 +49,21 @@ def main():
 
     fig, ax = plt.subplots(figsize=(7.6, 4.6))
     ax.plot(avals, std_std, "-", color="#444", lw=2.0, marker="o", ms=4,
-            label="standard  f'(1)=0")
+            label=r"standard normalization  $f'(1)=0$")
     ax.plot(avals, std_kln, "--", color=COLORS["kl"], lw=1.6, marker="x", ms=5,
-            label="KL-consistent  f'(1)=1  (coincides → invariant)")
+            label=r"canonical  $f'(1)=f''(1)$  (coincides $\to$ invariant)")
     ax.scatter([1.0], [0.0], s=170, facecolors="none", edgecolors=COLORS["kl"], linewidths=2.2, zorder=6)
     ax.axvline(1.0, color=COLORS["kl"], ls=":", lw=1.0, alpha=0.6)
-    ax.annotate("a=1: reverse-KL\n(admissible, =0)", xy=(1.0, 0.0),
+    ax.annotate("$\\alpha=1$: reverse-KL\n(permissible, =0)", xy=(1.0, 0.0),
                 xytext=(0.30, 0.55), textcoords="axes fraction", fontsize=8.5, color=COLORS["kl"],
                 ha="center", arrowprops=dict(arrowstyle="->", color=COLORS["kl"], lw=1.0))
-    ax.set_xlabel("α-divergence parameter  a   (a→0 FKL · a=1 RKL · a=2 χ²)")
-    ax.set_ylabel(r"$\mathrm{std}_\pi[C_\Omega(\pi)]$   (0 $\Leftrightarrow$ inner term policy-independent = admissible)")
+    ax.set_xlabel(r"divergence-family parameter  $\alpha$   "
+                  r"($\alpha\!\to\!0$: FKL · $\alpha\!=\!1$: RKL · $\alpha\!=\!2$: $\chi^2$)")
+    ax.set_ylabel(r"$\mathrm{std}_\pi[C_\Omega(\pi)]$   (0 $\Leftrightarrow$ inner term policy-independent = permissible)")
     ax.set_ylim(0, max(std_std.max(), std_kln.max()) * 1.06); ax.grid(alpha=0.2)
     ax.legend(fontsize=8.5, loc="upper center")
-    ax.set_title(r"Normalization-invariant admissibility metric — $\mathrm{std}_\pi[C_\Omega]$ vs $a$"
-                 "\nboth normalizations coincide (invariant) · zero only at a=1 (reverse-KL) · deterministic, no training",
-                 fontsize=10)
+    ax.set_title(r"Normalization-invariant permissibility metric — $\mathrm{std}_\pi[C_\Omega]$ vs $\alpha$", fontsize=10)
+    # B1 caption items: both normalizations coincide (invariant); zero only at α=1 (reverse-KL); deterministic, no training
     fig.tight_layout()
     p = "figs/adiv_invariant.png"; fig.savefig(p, dpi=140); plt.close()
     print(f"[saved] {p}")

@@ -27,7 +27,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT
+from regularizers import (REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT,
+                          REGIME_LABEL, REGIME_SUB)
 from mdp import new_rewards
 from experiments import peakiness, calibrate
 from seeds import rng_for
@@ -83,9 +84,7 @@ def fig_headline(man, agg_p, peak, nmc):
     """One peak's 3-panel headline: off (bars), off_on & on (Δπ vs n_mc, ±95%CI)."""
     COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
     regimes = [r for r in ("off", "off_on", "on") if r in agg_p]
-    titles = {"off": "off-policy (single logged a′ · n_mc irrelevant)",
-              "off_on": "off-on-policy / Dyna (fresh n_mc resample)",
-              "on": "on-policy (lagged sampler)"}
+    titles = {reg: f"{REGIME_LABEL[reg]}  ({REGIME_SUB[reg]})" for reg in regimes}
     fig, axes = plt.subplots(1, len(regimes), figsize=(5.2 * len(regimes), 4.4))
     axes = np.atleast_1d(axes)
     ymax = 0
@@ -110,13 +109,11 @@ def fig_headline(man, agg_p, peak, nmc):
                 ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
                 ymax = max(ymax, (cs + ci).max())
             ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
-            ax.set_xlabel("Monte-Carlo budget  n_mc")
+            ax.set_xlabel("MC budget  $n$")
         ax.set_title(titles[reg], fontsize=10); ax.grid(alpha=0.2)
     for ax in axes:
         ax.set_ylim(0, ymax * 1.08)
-    axes[-1].legend(fontsize=8, ncol=2, title="Ω (RKL = admissible)")
-    fig.suptitle(f"Tabular §4.3 (peak {peak}) — only the admissible Ω (RKL) recovers π* at low/zero "
-                 f"MC budget · {_design_str(man)}, ±95% CI", fontsize=11, y=1.0)
+    axes[-1].legend(fontsize=8, ncol=2, title="Ω (RKL = permissible)")
     fig.tight_layout()
     p = f"figs/tabular_headline_p{int(round(peak*100))}.png"
     fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
@@ -136,9 +133,7 @@ def fig_offpolicy_peaks(man, agg, peaks):
                    edgecolor="#111" if rk == "kl" else "none", linewidth=1.2 if rk == "kl" else 0,
                    label=f"peak {peak}" if i == 0 else None)
     ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS])
-    ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")
-    ax.set_title(f"Off-policy recovery across calibration peaks — RKL lowest at every peak · "
-                 f"{_design_str(man)} · ±95% CI", fontsize=10)
+    ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")   # caption: {design} · ±95% CI · RKL lowest at every peak
     ax.grid(alpha=0.2, axis="y"); ax.legend(fontsize=8, title="bar shade = peak")
     fig.tight_layout()
     p = "figs/tabular_offpolicy_peaks.png"
@@ -164,9 +159,8 @@ def fig_alpha_sweep(man, peaks):
         for rk in REGKEYS:
             ax.scatter([al[rk]], [peak], color=COLORS[rk], s=26, zorder=9 if rk == "kl" else 4)
         ax.text(grid[-1], peak, f" peak {peak}", va="center", fontsize=8, color="#555")
-    ax.set_xscale("log"); ax.set_xlabel("regularization weight α")
-    ax.set_ylabel("peak   mean_s max_a π*(a|s)")
-    ax.set_title("α–peak sweep (MDP 0, deterministic) — per-Ω α calibrated to each target peak", fontsize=10)
+    ax.set_xscale("log"); ax.set_xlabel(r"regularization temperature $\beta$")   # temperature (C0: β, not the family α)
+    ax.set_ylabel("peak   mean_s max_a π*(a|s)")   # caption: MDP 0, deterministic; per-Ω β calibrated to each target peak
     ax.legend(fontsize=8, ncol=2); ax.grid(alpha=0.2)
     fig.tight_layout()
     p = "figs/tabular_alpha_sweep.png"
@@ -184,10 +178,10 @@ def table_calibration(man, results, peaks):
             by.setdefault(r["rk"], {})[r["peak"]] = r["alpha"]
             meta[r["rk"]] = (r["C_exact"], r["admissible"])
     pcols = ",".join(f"alpha@{p}" for p in peaks)
-    csv = ["Omega," + pcols + ",C_exact,admissible"]
+    csv = ["Omega," + pcols + ",C_exact,permissible"]
     tex = [r"\begin{tabular}{l" + "r" * len(peaks) + "rc}", r"\toprule",
-           "$\\Omega$ & " + " & ".join(f"$\\alpha_{{{p}}}$" for p in peaks)
-           + r" & $C_\Omega(\pi^*)$ & admissible \\", r"\midrule"]
+           "$\\Omega$ & " + " & ".join(f"$\\beta_{{{p}}}$" for p in peaks)
+           + r" & $C_\Omega(\pi^*)$ & permissible \\", r"\midrule"]
     for rk in REGKEYS:
         ce, adm = meta[rk]
         als = [by[rk].get(p, float("nan")) for p in peaks]

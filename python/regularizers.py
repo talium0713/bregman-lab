@@ -167,6 +167,21 @@ COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
 SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
+# ── figure-label constants (paper terminology; Notion §8 B2–B4 / §9 C0–C1) ─────────────
+# The results.json regime KEYS stay 'off'/'off_on'/'on' (don't re-parse old runs); these dicts map
+# key → the LABEL a figure prints, and MUST match preview_cth.tex Appendix C.1 / Table 2 exactly.
+# Terminology: inner-term integrand Ψ (was Φ); property permissible (was admissible); correction
+# canonical (was kln / KL-consistent); divergence-family parameter α; temperature β; shaping λ(s).
+PSI = "Ψ"
+REGIME_LABEL = {"exact": "exact", "on": "on-policy", "off_on": "resampled", "off": "off-policy"}
+REGIME_SUB = {                    # B6: self-descriptive parenthetical — where the next action a′ comes from
+    "exact":  r"closed form over all $a'$",
+    "on":     r"fresh rollouts",
+    "off_on": r"logged states, fresh $a' \sim \pi_\theta$",
+    "off":    r"the single recorded $a'$",
+}
+REGIME_ORDER = ["exact", "on", "off_on", "off"]   # A6/B6: cost-ascending == paper §4 / Fig 2 order
+
 
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Unified soft-argmax: π_a = ref_a · (f')^{-1}((Q_a − ν)/α),  ν chosen so Σ_a π_a = 1.

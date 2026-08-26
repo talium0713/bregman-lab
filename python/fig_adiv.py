@@ -65,10 +65,11 @@ def fig_curve(man, agg, a_grid):
     ax.axvline(1.0, color=COLORS["kl"], ls="--", lw=1.0, alpha=0.6)
     # annotation placed in AXES-fraction coords so it stays inside the plot regardless of the
     # y-range (the kln case has a small range where a data-coord offset floated off the top).
-    ax.annotate("a=1: RKL\n(admissible)", xy=(1.0, agg[1.0]["mean"]),
+    ax.annotate("$\\alpha=1$: RKL\n(permissible)", xy=(1.0, agg[1.0]["mean"]),
                 xytext=(0.30, 0.48), textcoords="axes fraction", fontsize=8.5, color=COLORS["kl"],
                 ha="center", arrowprops=dict(arrowstyle="->", color=COLORS["kl"], lw=1.0))
-    ax.set_xlabel("α-divergence parameter  a   (a→0 FKL · a=1 RKL · a=2 χ²)")
+    ax.set_xlabel(r"divergence-family parameter  $\alpha$   "
+                  r"($\alpha\!\to\!0$: FKL · $\alpha\!=\!1$: RKL · $\alpha\!=\!2$: $\chi^2$)")
     ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")
     # snug top so the data max sits at a fixed near-top position (not floating mid-plot)
     ax.set_ylim(0, max(mu + ci) * 1.06); ax.grid(alpha=0.2)
@@ -83,13 +84,13 @@ def fig_curve(man, agg, a_grid):
             if 0.84 <= a <= 1.16:
                 axin.errorbar(a, agg[a]["mean"], yerr=agg[a]["ci"], fmt="o", ms=4, color=col(a), capsize=2)
         axin.scatter([1.0], [agg[1.0]["mean"]], s=70, facecolors="none", edgecolors=COLORS["kl"], linewidths=1.6)
-        axin.set_xlim(0.84, 1.16); axin.set_title("zoom: a≈1", fontsize=8)
+        axin.set_xlim(0.84, 1.16); axin.set_title(r"zoom: $\alpha \approx 1$", fontsize=8)
         axin.tick_params(labelsize=6.5); axin.grid(alpha=0.2)
         ax.indicate_inset_zoom(axin, edgecolor="#bbb")
 
-    norm = "KL-consistent f'(1)=1" if man.get("kl_norm") else "standard f'(1)=0 (paper baseline)"
-    ax.set_title(f"α-div sweep at fixed temperature α=RKL@peak{man['peak_ref']}  ·  {norm}\n"
-                 f"{man['n_mdp']} MDPs · off-policy · ±95% CI", fontsize=10)
+    norm = r"canonical  $f'(1)=f''(1)$" if man.get("kl_norm") else r"standard normalization  $f'(1)=0$"
+    ax.set_title(r"$\alpha$-div sweep · " + norm, fontsize=10)
+    # B1 caption items: temperature β = RKL@peak{peak_ref}; {n_mdp} MDPs; off-policy; ±95% CI
     fig.tight_layout()
     sfx = "_kln" if man.get("kl_norm") else ""
     p = f"figs/adiv_curve_p{int(round(man['peak_ref']*100))}{sfx}.png"; fig.savefig(p, dpi=140); plt.close()
@@ -112,14 +113,14 @@ def fig_morph(man, results, agg):
         ax.plot(idx, est, "-", color=col(a), lw=2.0, marker="s", ms=2.4, label="π_θ recovered", zorder=3)
         for l in range(1, DEPTH):
             ax.axvline(l * block - 0.5, color="#ddd", lw=0.7)
-        tag = "  (RKL, admissible)" if abs(a - 1) < 1e-9 else ""
-        ax.set_title(f"a = {a:g}{tag}\nΔπ={agg[a]['mean']:.3f} · peak={agg[a]['peak']:.2f}", fontsize=9)
+        tag = "  (RKL, permissible)" if abs(a - 1) < 1e-9 else ""
+        ax.set_title(f"$\\alpha$ = {a:g}{tag}\nΔπ={agg[a]['mean']:.3f} · peak={agg[a]['peak']:.2f}", fontsize=9)
         ax.set_ylim(0, 1); ax.set_xticks(centers); ax.set_xticklabels([f"ℓ{l}" for l in range(DEPTH)])
         ax.tick_params(labelsize=7.5)
         if a == rep[0]:
             ax.legend(fontsize=7.5, loc="upper right"); ax.set_ylabel("π(a | s)")
-    fig.suptitle(f"α-div morph at fixed α=RKL@peak{man['peak_ref']} (MDP 0): only a=1 (KL) recovers "
-                 "its target off-policy; the others leave π_θ far from π*", fontsize=10.5, y=1.02)
+    # B1: suptitle removed. Caption items → MDP 0; temperature β = RKL@peak{peak_ref}; family α;
+    # only α=1 (RKL) recovers its target off-policy, the others leave π_θ far from π*.
     fig.tight_layout()
     sfx = "_kln" if man.get("kl_norm") else ""
     p = f"figs/adiv_morph_p{int(round(man['peak_ref']*100))}{sfx}.png"
