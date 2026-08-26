@@ -128,7 +128,7 @@ def run_config(task: dict, rc_d: dict) -> dict:
     alpha = calibrate(rewards, peak, rc.gamma, rc.eps)[rk]
     sol = solve_dp(rk, rewards, uniform_pis(rc.depth), alpha, rc.gamma, rc.eps)
     data = (make_dataset(rewards, rc.eps, rc.gamma, rng_for(rc.root, "data_off", mi, pi), rc.npairs)
-            if regime in ("off", "off_on") else None)
+            if regime in ("off", "off_on", "exact") else None)   # exact reads the logged states like off
     return _train_cell(rc, rewards, alpha, sol, data, mi, pi, peak, regime, rk, ri, nm, rc.eps)
 
 
@@ -148,7 +148,7 @@ def run_mdp_block(block: dict, rc_d: dict) -> list:
         sols = {rk: solve_dp(rk, rewards, uniform_pis(rc.depth), alphas[rk], rc.gamma, eps_roll)
                 for rk in REGKEYS}
         for regime in rc.regimes:
-            if regime in ("off", "off_on"):
+            if regime in ("off", "off_on", "exact"):   # exact reads the logged states like off
                 dkey = (mi, pi, ei) if sweep else (mi, pi)
                 data = make_dataset(rewards, eps_roll, rc.gamma,
                                     rng_for(rc.root, "data_off", *dkey), rc.npairs)
