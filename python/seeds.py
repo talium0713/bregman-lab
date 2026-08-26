@@ -34,7 +34,7 @@ ROOT_SEED = 20260629
 ROLE = {"reward": 0, "data_off": 1, "data_on": 2, "train": 3}
 
 # Stable string->int maps so keys stay pure integers (SeedSequence requires int entropy).
-REGIME_IDX = {"off": 0, "off_on": 1, "on": 2}
+REGIME_IDX = {"off": 0, "off_on": 1, "on": 2, "exact": 3}
 REGKEY_IDX = {"kl": 0, "adiv": 1, "rkl": 2, "js": 3, "hel": 4, "chi2": 5, "euc": 6}
 
 

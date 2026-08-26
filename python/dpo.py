@@ -205,6 +205,11 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
 
     # ---- C_Ω(π(·|s')) over a given action set — the ONLY inner formula (KL→const by Φ_KL≡1). ----
     def inner_value(pol, acts, rf):
+        if cfg.policy_mode == "exact":            # closed form: C_Ω = E_{a~π}[Φ(u_a)] over ALL a' (tabular)
+            if R.is_euc:
+                return float(np.sum(pol * (pol - rf))) - R.omega(pol, rf), None
+            uu = np.maximum(pol, 1e-12) / rf
+            return float(np.sum(pol * R.Phi(uu))), None
         acts = np.asarray(acts, dtype=int)
         if acts.size == 0:
             return 0.0, acts
@@ -214,10 +219,13 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
         return float(np.mean(R.Phi(uu))), acts
 
     # ---- which actions feed C at the next state s', per policy_mode ----
+    #   exact  : all a' (closed-form C_Ω; no sampling — tabular only)   (A6)
     #   off    : the single logged next action a'_data         (category 1)
     #   on     : the stored {a_j} the sampler drew at s'        (category 2, reused from generation)
     #   off_on : n_mc fresh draws from the CURRENT π_θ(·|s')    (category 3, Dyna)
     def inner_actions(trans, i_t, pol_next):
+        if cfg.policy_mode == "exact":
+            return list(range(NA))
         if cfg.policy_mode == "off":
             a_next = unpack(trans[i_t + 1])[2] if i_t + 1 < len(trans) else None
             return [] if a_next is None else [a_next]
@@ -274,11 +282,25 @@ def train_one(reg_key: str, rewards: np.ndarray, alpha: float, data, cfg: TrainC
             # mode). KL has Φ'(u)≡0, so its inner gradient is exactly 0 — computed, not skipped.
             def acc_inner(inner, sign):
                 for (sn, l, acts) in inner:
+                    pol = pols[l + 1][sn]
+                    rf = ref[l + 1, sn]
+                    g = grad[l + 1, sn]
+                    if cfg.policy_mode == "exact":     # exact ∂C/∂θ_b = π_b (h_b − E_π[h]), all a'
+                        if R.is_euc:                   # C = Σ_a π_a(π_a−ref_a) − Ω ; h_a = 2π_a − ref_a
+                            k = 2.0 * pol - rf
+                            g += coef * sign * alpha * INNER_SIGN * (pol * (k - float(np.sum(pol * k))))
+                            for bb in range(NA):       # −∂Ω/∂θ_b (exact, over all actions)
+                                dO = sum((pol[a2] - rf[a2]) * pol[a2] * ((1.0 if a2 == bb else 0.0) - pol[bb])
+                                         for a2 in range(NA))
+                                g[bb] += coef * sign * alpha * INNER_SIGN * (-dO)
+                        else:                          # h_a = Φ(u_a) + π_a Φ'(u_a)/ref_a
+                            uu = np.maximum(pol, 1e-12) / rf
+                            h = R.Phi(uu) + pol * R.dPhi(uu) / rf
+                            g += coef * sign * alpha * INNER_SIGN * (pol * (h - float(np.sum(pol * h))))
+                        continue
                     acts = np.asarray(acts)
                     if acts.size == 0:
                         continue
-                    pol = pols[l + 1][sn]
-                    rf = ref[l + 1, sn]
                     nz = acts.size
                     g = grad[l + 1, sn]                    # view; modified in place
                     # ∂/∂θ_b of α·(1/n)Σ_aj integrand(u_aj):  scatter coeff to aj, minus pol·Σcoeff

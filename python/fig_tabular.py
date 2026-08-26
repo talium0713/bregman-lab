@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from regularizers import (REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT,
-                          REGIME_LABEL, REGIME_SUB)
+                          REGIME_LABEL, REGIME_SUB, REGIME_ORDER)
 from mdp import new_rewards
 from experiments import peakiness, calibrate
 from seeds import rng_for
@@ -83,13 +83,13 @@ def _design_str(man):
 def fig_headline(man, agg_p, peak, nmc):
     """One peak's 3-panel headline: off (bars), off_on & on (Δπ vs n_mc, ±95%CI)."""
     COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
-    regimes = [r for r in ("off", "off_on", "on") if r in agg_p]
+    regimes = [r for r in REGIME_ORDER if r in agg_p]   # A6/B6: exact -> on-policy -> resampled -> off-policy
     titles = {reg: f"{REGIME_LABEL[reg]}  ({REGIME_SUB[reg]})" for reg in regimes}
     fig, axes = plt.subplots(1, len(regimes), figsize=(5.2 * len(regimes), 4.4))
     axes = np.atleast_1d(axes)
     ymax = 0
     for ax, reg in zip(axes, regimes):
-        if reg == "off":
+        if reg in ("off", "exact"):                      # single-point (n_mc irrelevant) -> bars
             x = np.arange(len(REGKEYS))
             for i, rk in enumerate(REGKEYS):
                 c, ci, perm = agg_p[reg][rk][1]
