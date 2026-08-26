@@ -1,0 +1,13 @@
+{
+  "a": "kl_bdpo",
+  "b": "rkl_bdpo",
+  "n_prompts": 500,
+  "n_games": 995,
+  "nulls": 5,
+  "wins": 634,
+  "ties": 92,
+  "losses": 269,
+  "win_rate": 68.3,
+  "ci_lo": 64.9,
+  "ci_hi": 71.7
+}

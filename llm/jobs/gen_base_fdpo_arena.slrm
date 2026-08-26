@@ -1,0 +1,38 @@
+#!/bin/bash
+# Arena-Hard v0.1 GENERATION (RePO-match) for the 6 base->f-DPO sweep policies. Same regime that
+# reproduced base=10.4 and gave base->DPO its clean +4: open turn + system prompt + rep_penalty 1.05 +
+# string/token stops + greedy + max 1024.
+#   array 0-5 = kl rkl adiv js hel chi2 -> tags {div}_bdpo
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/gen_base_fdpo_arena.slrm
+# Output: results/bench/arena_v01/{div}_bdpo.jsonl  (then judge: JUDGE=gpt-4.1-2025-04-14 bash run_arena_v01_judge.sh)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=genbfdpo
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-5
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl rkl adiv js hel chi2)
+DIV="${DIVS[$SLURM_ARRAY_TASK_ID]}"
+POL="results/bench/stageB_${DIV}_bdpo_token_bench1p7b_policy"
+[ -d "$POL" ] || { echo "policy $POL missing"; exit 1; }
+
+echo "=== gen Arena-Hard v0.1 [${DIV}_bdpo] (RePO-match) from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "${DIV}_bdpo" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/${DIV}_bdpo.jsonl"
+echo "=== done ${DIV}_bdpo -> results/bench/arena_v01/${DIV}_bdpo.jsonl | $(date) ==="

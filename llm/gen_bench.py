@@ -63,18 +63,34 @@ def main():
     ap.add_argument("--max-new", type=int, default=1024)
     ap.add_argument("--batch-size", type=int, default=16, help="batched generation for single-turn sets (arena/alpaca); MT-Bench multi-turn runs sequentially")
     ap.add_argument("--temperature", type=float, default=0.0, help="0 = greedy (default); >0 = sampling")
+    ap.add_argument("--rep-penalty", type=float, default=1.0,
+                    help="repetition_penalty (RePO uses 1.05 to kill degenerate loops like 'umably umably…'; 1.0 = off)")
+    ap.add_argument("--system", default="",
+                    help="optional system prompt prepended to every turn (RePO uses 'You are a helpful assistant.')")
     ap.add_argument("--max-prompts", type=int, default=0, help="0 = all")
+    ap.add_argument("--think", choices=["off", "default", "on"], default="off",
+                    help="Qwen3 chat mode: off=enable_thinking=False (empty <think> prefill, direct answer — "
+                         "matches our training); default=no kwarg (open assistant turn, model may reason — RePO's setup); "
+                         "on=enable_thinking=True (open turn, reasoning encouraged)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.model)
     kw = {}
-    try:                                            # Qwen3: suppress the <think> block
-        tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, enable_thinking=False)
-        kw = {"enable_thinking": False}
-    except TypeError:
-        pass
+    if args.think == "off":
+        try:                                        # Qwen3: suppress the <think> block (empty prefill)
+            tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, enable_thinking=False)
+            kw = {"enable_thinking": False}
+        except TypeError:
+            pass
+    elif args.think == "on":
+        try:
+            tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, enable_thinking=True)
+            kw = {"enable_thinking": True}
+        except TypeError:
+            pass
+    # args.think == "default" -> kw stays {} (no enable_thinking kwarg = RePO's open assistant turn)
     try:
         model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
     except TypeError:
@@ -84,11 +100,27 @@ def main():
     Q = load_questions(args.prompts)
     if args.max_prompts > 0:
         Q = Q[:args.max_prompts]
-    gen_kw = dict(max_new_tokens=args.max_new, pad_token_id=tok.eos_token_id)
+    # STOP tokens: a ChatML assistant turn ends with <|im_end|>, but Qwen3-Base's eos is <|endoftext|>,
+    # so generate() would run past the answer to max_new_tokens (→ degenerate repetition) unless we add
+    # <|im_end|> as a stop id. (vLLM does this automatically from the chat template; HF .generate does not.)
+    stop_ids = [tok.eos_token_id]
+    _imend = tok.convert_tokens_to_ids("<|im_end|>")
+    if isinstance(_imend, int) and _imend >= 0 and _imend != tok.eos_token_id:
+        stop_ids.append(_imend)
+    gen_kw = dict(max_new_tokens=args.max_new, pad_token_id=tok.eos_token_id, eos_token_id=stop_ids)
+    if args.rep_penalty and args.rep_penalty != 1.0:   # RePO=1.05 → suppresses degenerate repetition loops
+        gen_kw["repetition_penalty"] = args.rep_penalty
+    # STRING stops (RePO's qwen list): catch run-on that never emits a stop TOKEN — e.g. a base model
+    # that starts a fake new turn "\n\nQuestion:" instead of <|im_end|>. Needs the tokenizer passed too.
+    STOP_STRINGS = ["<|im_end|>", "<|endoftext|>", "</s>", "\n\nQuestion:", "<|end|>"]
+    gen_kw["stop_strings"] = STOP_STRINGS
+    gen_kw["tokenizer"] = tok
     if args.temperature and args.temperature > 0:
         gen_kw.update(do_sample=True, temperature=args.temperature, top_p=0.9)
     else:
         gen_kw.update(do_sample=False)
+    print(f"stop_ids={stop_ids} rep_penalty={args.rep_penalty} stop_strings={STOP_STRINGS} "
+          f"system={bool(args.system)} (eos={tok.eos_token_id}, <|im_end|>={_imend})", flush=True)
 
     import hashlib
     tok.padding_side = "left"                        # decoder-only batched generation needs left padding
@@ -115,8 +147,10 @@ def main():
     if single_turn and args.batch_size > 1:          # BATCHED (AlpacaEval / Arena-Hard) — ~10× faster
         for b0 in range(0, len(Q), args.batch_size):
             batch = Q[b0:b0 + args.batch_size]
-            texts = [tok.apply_chat_template([{"role": "user", "content": t[0]}], tokenize=False,
-                                             add_generation_prompt=True, **kw) for _, t in batch]
+            texts = [tok.apply_chat_template(
+                         (([{"role": "system", "content": args.system}] if args.system else [])
+                          + [{"role": "user", "content": t[0]}]),
+                         tokenize=False, add_generation_prompt=True, **kw) for _, t in batch]
             enc = tok(texts, return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
             g = model.generate(**enc, **gen_kw)
             plen = enc["input_ids"].shape[1]
@@ -126,7 +160,8 @@ def main():
             print(f"  {min(b0 + args.batch_size, len(Q))}/{len(Q)}  {time.time() - t0:.0f}s", flush=True)
     else:                                            # sequential (MT-Bench multi-turn, or --batch-size 1)
         for i, (qid, turns) in enumerate(Q):
-            msgs, responses = [], []
+            msgs = [{"role": "system", "content": args.system}] if args.system else []
+            responses = []
             for turn in turns:                       # model's own prior turns stay in context
                 msgs.append({"role": "user", "content": turn})
                 text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **kw)

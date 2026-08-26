@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"; LLM_DIR="$(pwd)"
 ARENA_DIR="${ARENA_DIR:-$HOME/arena-hard-auto}"
-JUDGE="${JUDGE:-gpt-4.1}"
+JUDGE="${JUDGE:-gpt-4.1-2025-04-14}"   # RePO's exact Arena-Hard v0.1 judge snapshot
 [ -z "${OPENAI_API_KEY:-}" ] && [ -f openai_key.txt ] && export OPENAI_API_KEY="$(tr -d '[:space:]' < openai_key.txt)"
 [ -n "${OPENAI_API_KEY:-}" ] || { echo "no OPENAI_API_KEY — export it or put it in $(pwd)/openai_key.txt"; exit 1; }
 ls results/bench/arena_v01/*.jsonl >/dev/null 2>&1 || { echo "no results/bench/arena_v01/*.jsonl — run gen_arena_v01.slrm first"; exit 1; }
