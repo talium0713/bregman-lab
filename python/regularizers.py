@@ -321,6 +321,31 @@ def make_adiv(a: float, kl_norm: bool = False) -> "Regularizer":
     return Regularizer("adiv", s.label, s)
 
 
+def canonical_spec(s: "Spec") -> "Spec":
+    """Affine-renormalize an f-divergence generator to the CANONICAL form f'(1)=f''(1): shift
+    f → f + c(t−1),  f' → f' + c   with  c = f''(1) − f'(1)   (f'' unchanged).  The affine term sums to
+    0 under Σ_a ref_a(·), so Ω and π* are UNCHANGED; but Φ(u)=f'(u)−f(u)/u shifts to Φ(u)+c/u, which
+    changes the single-sample off-policy inner-term estimate (the whole point — see fig_adiv_compare).
+    This generalizes the α-div `kl_norm` (which is exactly c=1) to any f-divergence.  Not defined for
+    euc (not an f-divergence).  For KL itself c=0, so canonical KL == standard KL."""
+    if s.type == "euc":
+        raise ValueError("euc is not an f-divergence — no canonical representative (Lemma 2(i))")
+    c = float(s.fpp(1.0) - s.fp(1.0))
+    f0, fp0, inv0 = s.f, s.fp, s.inv
+    return Spec(s.key, s.label, "fdiv",
+                f=lambda t, f0=f0, c=c: f0(t) + c * (t - 1.0),
+                fp=lambda t, fp0=fp0, c=c: fp0(t) + c,
+                fpp=s.fpp,
+                inv=(lambda y, inv0=inv0, c=c: inv0(y - c)) if inv0 is not None else None,
+                nu_bracket=s.nu_bracket)
+
+
+def make_canonical(rk: str) -> "Regularizer":
+    """The canonical-normalization representative of divergence `rk` (an f-divergence). Same Ω/π* as
+    REG[rk], canonical inner integrand Φ+c/u. Raises for euc."""
+    return Regularizer(rk, REG[rk].label, canonical_spec(REG[rk].spec))
+
+
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Admissibility, CHECKED not hardcoded: Ω is off-policy admissible iff its inner integrand
 # Φ(u) is constant in u (equivalently Var_{a~π}[Φ] = 0 for every π).  Returns True only for KL.
