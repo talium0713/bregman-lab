@@ -1,0 +1,11 @@
+{
+  "paper_name": "f11_adiv_invariant",
+  "source_figure": "python/figs/adiv_invariant",
+  "source_data": "fig_adiv_invariant.py \u2014 normalization-invariant permissibility metric",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1e7d6bb97f4e5e9257e1335766cdc162daa3aec4",
+  "exported_at": "2026-08-26T20:21:19+00:00"
+}

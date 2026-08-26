@@ -40,7 +40,8 @@ for i, (w, h) in enumerate(zip(wr, hi)):
 
 ax.set_xticks(list(x)); ax.set_xticklabels(labels)
 ax.set_ylabel("RKL win rate, head-to-head (%)")
-ax.set_title("RKL is preferred over every other $f$-divergence\n(direct head-to-head, judge gpt-4.1)", fontsize=12)
+# B1: no in-figure title. Caption → RKL's direct head-to-head win rate vs each other divergence (and the
+# base), judge gpt-4.1-2025-04-14, 2 games/prompt (position-swapped), bootstrap 95% CI; all bars >50%.
 ax.set_ylim(0, max(wr + [50]) + 8)
 ax.legend(loc="lower right", frameon=True, fontsize=9.5)
 ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)

@@ -65,8 +65,10 @@ def main():
     ax.set_title(r"Normalization-invariant permissibility metric — $\mathrm{std}_\pi[C_\Omega]$ vs $\alpha$", fontsize=10)
     # B1 caption items: both normalizations coincide (invariant); zero only at α=1 (reverse-KL); deterministic, no training
     fig.tight_layout()
-    p = "figs/adiv_invariant.png"; fig.savefig(p, dpi=140); plt.close()
-    print(f"[saved] {p}")
+    for ext in ("png", "pdf"):
+        fig.savefig(f"figs/adiv_invariant.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    print("[saved] figs/adiv_invariant.png/.pdf")
     for a, s in zip(avals, std_std):
         if abs(a - 1) < 1e-9 or a in (avals[0], avals[-1]):
             print(f"  a={a:.2f}  std_π[C_Ω]={s:.4f}")

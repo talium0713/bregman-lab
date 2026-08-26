@@ -1,0 +1,11 @@
+{
+  "paper_name": "fL1_arena_winrate",
+  "source_figure": "llm/results/stageB_divergence_wr",
+  "source_data": "fig_permissibility_wr.py \u00b7 llm/results/bench/arena_v01/divergence_wr.json",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1e7d6bb97f4e5e9257e1335766cdc162daa3aec4",
+  "exported_at": "2026-08-26T20:21:19+00:00"
+}

@@ -123,9 +123,9 @@ def main():
         fig.add_artist(Line2D(xx, yc + dy + wave, color="0.30", lw=1.6,
                               solid_capstyle="round", clip_on=False, zorder=60))
 
-    out = os.path.join(FIGDIR, "toy_Asize_ablation.png")
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    print("wrote", out)
+    for ext in ("png", "pdf"):
+        fig.savefig(os.path.join(FIGDIR, f"toy_Asize_ablation.{ext}"), dpi=150, bbox_inches="tight")
+    print("wrote", os.path.join(FIGDIR, "toy_Asize_ablation.png/.pdf"))
 
     # small text table for the write-up
     print("\nstd_{a~π_ref}[Φ]  (median over %d seeds):" % N_SEEDS)

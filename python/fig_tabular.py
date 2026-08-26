@@ -115,9 +115,11 @@ def fig_headline(man, agg_p, peak, nmc):
         ax.set_ylim(0, ymax * 1.08)
     axes[-1].legend(fontsize=8, ncol=2, title="Ω (RKL = permissible)")
     fig.tight_layout()
-    p = f"figs/tabular_headline_p{int(round(peak*100))}.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
-    return p
+    stem = f"figs/tabular_headline_p{int(round(peak*100))}"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    return f"{stem}.png"
 
 
 def fig_offpolicy_peaks(man, agg, peaks):

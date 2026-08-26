@@ -93,8 +93,11 @@ def fig_curve(man, agg, a_grid):
     # B1 caption items: temperature β = RKL@peak{peak_ref}; {n_mdp} MDPs; off-policy; ±95% CI
     fig.tight_layout()
     sfx = "_kln" if man.get("kl_norm") else ""
-    p = f"figs/adiv_curve_p{int(round(man['peak_ref']*100))}{sfx}.png"; fig.savefig(p, dpi=140); plt.close()
-    return p
+    stem = f"figs/adiv_curve_p{int(round(man['peak_ref']*100))}{sfx}"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    return f"{stem}.png"
 
 
 def fig_morph(man, results, agg):
@@ -123,9 +126,11 @@ def fig_morph(man, results, agg):
     # only α=1 (RKL) recovers its target off-policy, the others leave π_θ far from π*.
     fig.tight_layout()
     sfx = "_kln" if man.get("kl_norm") else ""
-    p = f"figs/adiv_morph_p{int(round(man['peak_ref']*100))}{sfx}.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
-    return p
+    stem = f"figs/adiv_morph_p{int(round(man['peak_ref']*100))}{sfx}"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    return f"{stem}.png"
 
 
 def main():

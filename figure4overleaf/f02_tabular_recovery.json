@@ -1,0 +1,11 @@
+{
+  "paper_name": "f02_tabular_recovery",
+  "source_figure": "python/figs/tabular_headline_p70",
+  "source_data": "fig_tabular.py \u00b7 python/data/tabular/run_*/results.json (peak 0.7, 100 MDPs)",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1e7d6bb97f4e5e9257e1335766cdc162daa3aec4",
+  "exported_at": "2026-08-26T20:21:19+00:00"
+}
