@@ -21,8 +21,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-
 from regularizers import COLORS
 
 KLN = "data/tabular/run_adiv_p80_kln/results.json"    # KL-consistent (the diagnostic)
@@ -67,22 +65,8 @@ def render(kln_p, std_p, paper=False):
                   "\n"
                   r"($\alpha\!\to\!0$: FKL   $\alpha\!=\!1$: RKL   $\alpha\!=\!2$: $\chi^2$)")
     ax.set_ylabel(r"recovery gap $\Delta_\pi$ (mean TV to $\pi^\star$)")
-    ax.set_ylim(0, 0.62)              # C2②: headroom above the red std curve (max ≈ 0.478)
+    ax.set_ylim(0, 0.55)
     ax.grid(alpha=0.2)
-
-    # zoom inset around α=1 — C2②: enlarged + raised, opaque + on top, connectors on the LEFT corners
-    m = [a for a in a_grid if 0.84 <= a <= 1.16]
-    if len(m) > 2:
-        axin = ax.inset_axes([0.52, 0.42, 0.46, 0.46])
-        for d, c, ls in [(std, C_STD, "--"), (kln, C_KLN, "-")]:
-            mu = np.array([d[a][0] for a in m]); ci = np.array([d[a][1] for a in m])
-            axin.plot(m, mu, ls, color=c, lw=1.4, marker="o", ms=3.5)
-            axin.fill_between(m, mu - ci, mu + ci, color=c, alpha=0.13)
-        axin.scatter([1.0], [kln[1.0][0]], s=60, facecolors="none", edgecolors=COLORS["kl"], linewidths=1.5)
-        axin.set_xlim(0.84, 1.16); axin.set_title(r"zoom: $\alpha \approx 1$", fontsize=9, pad=3)
-        axin.tick_params(labelsize=6.5); axin.grid(alpha=0.2)
-        axin.set_zorder(5); axin.patch.set_facecolor("white"); axin.patch.set_alpha(1.0)
-        mark_inset(ax, axin, loc1=2, loc2=3, fc="none", ec="#bbb")
 
     # B1: no in-figure title. Caption items → α-div generator-normalization fix; off-policy; temperature
     # β = RKL@peak{peak}; {man['n_mdp']} MDPs; ±95% CI; same Ω/π*, only the inner-term estimator differs;
