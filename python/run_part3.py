@@ -337,8 +337,8 @@ def fig_policy_2x7(rewards, alphas, std_pol0, canon_pol0, gaps, peak, sfx):
             if r == len(REGKEYS) - 1:
                 ax.set_xticklabels([f"ℓ{l}" for l in range(DEPTH)], fontsize=7)
         axes[r, 0].set_ylabel(SHORT[rk], color=COLORS[rk], fontsize=10)
-    axes[0, 0].set_title(r"standard (Amari, $f'(1)=0$)", fontsize=10)
-    axes[0, 1].set_title(r"canonical ($f'(1)=f''(1)$)", fontsize=10)
+    axes[0, 0].set_title(r"standard form (Amari, $f'(1)=0$)", fontsize=10)
+    axes[0, 1].set_title(r"canonical form ($f'(1)=f''(1)$)", fontsize=10)
     if star_h is not None:
         fig.legend([star_h, pol_h], [r"$\pi^\star$ target", r"$\pi_\theta$ recovered"],
                    loc="upper center", ncol=2, fontsize=9, frameon=False, bbox_to_anchor=(0.5, 1.0))

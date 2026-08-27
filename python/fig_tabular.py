@@ -81,39 +81,57 @@ def _design_str(man):
 
 
 def fig_headline(man, agg_p, peak, nmc):
-    """One peak's 3-panel headline: off (bars), off_on & on (Δπ vs n_mc, ±95%CI)."""
+    """One peak's headline: the on-policy and resampled Δπ-vs-n_mc panels (±95% CI), then a grouped
+    exact-vs-off-policy bar panel on the RIGHT (per divergence, exact transparent+hatched directly beside
+    off-policy solid). Divergence-colour legend lives on the on-policy panel."""
+    from matplotlib.patches import Patch
+    from matplotlib.colors import to_rgba
     COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
-    regimes = [r for r in REGIME_ORDER if r in agg_p]   # A6/B6: exact -> on-policy -> resampled -> off-policy
-    titles = {reg: f"{REGIME_LABEL[reg]}  ({REGIME_SUB[reg]})" for reg in regimes}
-    fig, axes = plt.subplots(1, len(regimes), figsize=(5.2 * len(regimes), 4.4))
+    LEG_FS = 9.5
+    line_regimes = [r for r in ("on", "off_on") if r in agg_p]      # on-policy, then resampled
+    have_grouped = "exact" in agg_p and "off" in agg_p
+    npanel = len(line_regimes) + (1 if have_grouped else 0)
+    fig, axes = plt.subplots(1, npanel, figsize=(5.2 * npanel, 4.4))
     axes = np.atleast_1d(axes)
     ymax = 0
-    for ax, reg in zip(axes, regimes):
-        if reg in ("off", "exact"):                      # single-point (n_mc irrelevant) -> bars
-            x = np.arange(len(REGKEYS))
-            for i, rk in enumerate(REGKEYS):
-                c, ci, perm = agg_p[reg][rk][1]
-                ax.bar(x[i], c, 0.74, yerr=ci, capsize=3, color=COLORS[rk],
-                       edgecolor="#111" if rk == "kl" else "none",
-                       linewidth=2.0 if rk == "kl" else 0, zorder=3)
-                if len(perm) <= 10:
-                    ax.plot([x[i]] * len(perm), perm, "o", ms=3, color="#222", alpha=0.5, zorder=5)
-                ymax = max(ymax, c + ci)
-            ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS], fontsize=8)
-            ax.set_ylabel("policy gap  Δπ  (mean TV vs π*)")
-        else:
-            for rk in REGKEYS:
-                cs = np.array([agg_p[reg][rk][n][0] for n in nmc])
-                ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
-                ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
-                ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
-                ymax = max(ymax, (cs + ci).max())
-            ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
-            ax.set_xlabel("MC budget  $n$")
-        ax.set_title(titles[reg], fontsize=10); ax.grid(alpha=0.2)
+    ai = 0
+    x = np.arange(len(REGKEYS))
+    for reg in line_regimes:                             # Δπ vs MC budget, ±95% CI (leftmost panels)
+        ax = axes[ai]
+        for rk in REGKEYS:
+            cs = np.array([agg_p[reg][rk][n][0] for n in nmc])
+            ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
+            ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+            ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
+            ymax = max(ymax, (cs + ci).max())
+        ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
+        ax.set_xlabel("MC budget  $n$")
+        ax.set_title(f"{REGIME_LABEL[reg]}  ({REGIME_SUB[reg]})", fontsize=10); ax.grid(alpha=0.2)
+        if ai == 0:
+            ax.set_ylabel(r"policy gap  $\Delta_\pi$ = mean of $\mathrm{TV}(\pi_\theta \,\|\, \pi^\star)$")
+        if reg == "on":                                  # divergence-colour legend lives on on-policy
+            ax.legend(fontsize=LEG_FS, ncol=2, loc="upper right")
+        ai += 1
+    if have_grouped:                                     # exact (transparent+hatched) beside off (solid), RIGHT
+        ax = axes[ai]
+        w = 0.46                                         # pair spans [x-0.46, x+0.46]: no intra-pair gap
+        for i, rk in enumerate(REGKEYS):
+            ce, cie, _ = agg_p["exact"][rk][1]
+            co, cio, _ = agg_p["off"][rk][1]
+            kl = rk == "kl"
+            ax.bar(x[i] - w / 2, ce, w, yerr=cie, capsize=2, facecolor=to_rgba(COLORS[rk], 0.28),
+                   hatch="///", edgecolor="#111" if kl else COLORS[rk], linewidth=1.3 if kl else 0.8, zorder=3)
+            ax.bar(x[i] + w / 2, co, w, yerr=cio, capsize=2, color=COLORS[rk], alpha=1.0,
+                   edgecolor="#111" if kl else "none", linewidth=1.5 if kl else 0, zorder=3)
+            ymax = max(ymax, ce + cie, co + cio)
+        ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS], fontsize=8)
+        ax.set_title("exact vs off-policy", fontsize=10); ax.grid(alpha=0.2, axis="y")
+        ax.legend(handles=[Patch(facecolor=to_rgba("#888", 0.28), hatch="///", edgecolor="#555",
+                                 label=r"exact (closed form, all $a'$)"),
+                           Patch(facecolor="#888", label=r"off-policy (single logged $a'$)")],
+                  fontsize=LEG_FS, loc="upper left")
     for ax in axes:
-        ax.set_ylim(0, ymax * 1.08)
-    axes[-1].legend(fontsize=8, ncol=2, title="Ω (RKL = permissible)")
+        ax.set_ylim(0, ymax * 1.28)                      # extra headroom so legends clear the bars/lines
     fig.tight_layout()
     stem = f"figs/tabular_headline_p{int(round(peak*100))}"
     for ext in ("png", "pdf"):

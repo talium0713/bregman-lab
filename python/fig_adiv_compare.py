@@ -56,8 +56,8 @@ def render(kln_p, std_p, paper=False):
         plt.rcParams.update({"font.size": 9})
     C_STD, C_KLN = "#d9534f", "#2c7fb8"
     fig, ax = plt.subplots(figsize=(5.5, 3.7) if paper else (7.8, 4.6))
-    _plot(ax, a_grid, std, C_STD, r"standard normalization ($f'(1)=0$)", ls="--")
-    _plot(ax, a_grid, kln, C_KLN, r"canonical normalization ($f'(1)=f''(1)$)")
+    _plot(ax, a_grid, std, C_STD, r"standard form ($f'(1)=0$)", ls="--")
+    _plot(ax, a_grid, kln, C_KLN, r"canonical form ($f'(1)=f''(1)$)")
     ax.scatter([1.0], [kln[1.0][0]], s=150, facecolors="none", edgecolors=COLORS["kl"],
                linewidths=2.0, zorder=6, label=r"$\alpha=1$: reverse KL (shared by both)")
     ax.axvline(1.0, color=COLORS["kl"], ls=":", lw=1.0, alpha=0.6)

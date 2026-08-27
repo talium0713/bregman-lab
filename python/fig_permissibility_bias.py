@@ -69,7 +69,7 @@ def render():
                   r"($\pi=(1{-}t)\,\pi_{\mathrm{ref}}+t\,\pi_{\mathrm{target}}$;   $t{=}0$: on-policy)")
     ax.set_ylabel(r"$|\mathrm{bias}|$ of the single-sample off-policy inner term")
     ax.grid(alpha=0.2, which="both")
-    ax.legend(fontsize=8, loc="upper left", title="canonical generator", title_fontsize=8)
+    ax.legend(fontsize=8, loc="upper left", title="canonical form", title_fontsize=8)
     # Caption: only RKL's canonical Ψ≡1 makes the single logged a′ unbiased for every π; every other
     # divergence — even at its canonical normalization — is biased, and the bias grows without bound as
     # π moves off-policy. NA=3, mean |bias| over K=400 random (π_ref, deterministic target) draws.
