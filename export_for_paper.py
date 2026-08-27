@@ -26,6 +26,12 @@ FIGS = {
                                     "fig_adiv.py · run_adiv_p80/results.json (T10, peak 0.8)"),
     "f11_adiv_invariant":          ("python/figs/adiv_invariant",
                                     "fig_adiv_invariant.py — normalization-invariant permissibility metric"),
+    "f12_permissibility_bias":     ("python/figs/permissibility_bias",
+                                    "fig_permissibility_bias.py — off-policy single-sample inner-term |bias| "
+                                    "vs drift (canonical generators); RKL≡0 uniquely permissible, others fan out"),
+    "f13_policy_2x7_canonical":    ("python/figs/part3_policy_2x7_p9",
+                                    "run_part3.py run_2x7/fig_policy_2x7 (CANONICAL=1) — standard(Amari,f'=0) vs "
+                                    "canonical(f'=f'') off-policy π* recovery, peak 0.9 (high drift), 100 MDPs"),
     "fL1_arena_winrate":           ("llm/results/stageB_divergence_wr",
                                     "fig_permissibility_wr.py · llm/results/bench/arena_v01/divergence_wr.json"),
     "fL2_head_to_head":            ("llm/results/stageB_divergence_h2h",

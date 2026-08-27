@@ -25,15 +25,18 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REG, REGKEYS, is_admissible, make_adiv, COLORS, SHORT
+from regularizers import REG, REGKEYS, is_admissible, make_adiv, make_canonical, make_standard, COLORS, SHORT
 from mdp import solve_dp, uniform_pis, new_rewards, state_occupancy, SN, NA
 from inner_term import C_exact, c_violation, single_state_variance, trajectory_variance
 from dpo import TrainConfig, make_dataset, make_dataset_policy, train_one
 from experiments import calibrate, peakiness, c_stats, run_sweep, mean_std
 
 QUICK = bool(os.environ.get("QUICK"))
+CANONICAL = bool(os.environ.get("CANONICAL"))   # C3: also render the 2×7 standard-vs-canonical recovery
 GAMMA, EPS, DEPTH, BATCH = 0.9, 0.2, 4, 16
 PEAKS = [0.6, 0.7, 0.8]          # §4.3 sweep at three calibration anchors (on- and off-policy each)
+TWOX7_PEAKS = [0.9]              # C3/A10: the 2×7 recovery lives at a high-drift peak where RKL separates
+                                 # (at low drift every canonical divergence ≈ KL — see fig_permissibility_bias)
 NMC_SWEEP = [1, 2] if QUICK else [1, 2, 4, 8, 16, 32, 64, 128, 256]   # §4.3 Monte-Carlo budget sweep
 SEEDS = 2 if QUICK else 3
 STEPS = 80 if QUICK else 400
@@ -254,6 +257,103 @@ def run_section43(peak, rng, n_mdp=3):
     return alphas0, rewards0, agg, pol1
 
 
+def run_2x7(peak, rng, n_mdp):
+    """C3: off-policy π* recovery (n_mc=1) under the STANDARD (Amari, f'(1)=0) vs the CANONICAL
+    (f'(1)=f''(1)) generator, for the 2×7 panel. Both columns share the same reward draw, α, and
+    off-policy dataset per MDP; per divergence, std and canon are trained from the SAME seed so the
+    ONLY difference is the generator (a paired comparison). Standard uses make_standard(rk): for the
+    already-f'(1)=0 divergences (adiv/js/hel/chi2) this equals the natural form, and for RKL/FKL it is
+    the Amari-normalized form (RKL ⇒ Φ=1−1/u, the spurious off-policy tail). Canonical uses
+    make_canonical(rk) (RKL ⇒ Φ≡1, permissible). euc is not an f-divergence → standard column only
+    (natural euc), canonical right panel hatched. Returns MDP-0 policies + Δπ means over MDPs."""
+    fdivs = [rk for rk in REGKEYS if rk != "euc"]
+    raw = {"std": {rk: [] for rk in REGKEYS}, "canon": {rk: [] for rk in fdivs}}
+    std_pol0, canon_pol0 = {}, {}
+    alphas0 = rewards0 = None
+    for mi in range(n_mdp):
+        rewards = new_rewards(DEPTH, rng)
+        alphas = calibrate(rewards, peak, GAMMA, EPS)
+        data_off = make_dataset(rewards, EPS, GAMMA, rng, NPAIRS)            # π_ref rollouts
+        if mi == 0:
+            alphas0, rewards0 = alphas, rewards
+        cfg = TrainConfig(gamma=GAMMA, steps=STEPS, batch=BATCH, n_mc=1)
+        for rk in REGKEYS:                                                   # paired std/canon per divergence
+            seed_rk = int(rng.integers(0, 2 ** 31 - 1))                      # one seed → identical training noise
+            std_reg = None if rk == "euc" else make_standard(rk)            # euc: natural (no f'(1)=0 form)
+            _, gof, pof = train_one(rk, rewards, alphas[rk], data_off, cfg, EPS,
+                                    np.random.default_rng(seed_rk), reg=std_reg)
+            raw["std"][rk].append(gof)
+            if mi == 0:
+                std_pol0[rk] = pof
+            if rk == "euc":
+                continue
+            _, gof, pof = train_one(rk, rewards, alphas[rk], data_off, cfg, EPS,
+                                    np.random.default_rng(seed_rk), reg=make_canonical(rk))
+            raw["canon"][rk].append(gof)
+            if mi == 0:
+                canon_pol0[rk] = pof
+        print(f"    2x7 MDP {mi + 1}/{n_mdp} done")
+    gaps = {"std": {rk: mean_std(raw["std"][rk]) for rk in REGKEYS},
+            "canon": {rk: mean_std(raw["canon"][rk]) for rk in fdivs}}
+    return alphas0, rewards0, std_pol0, canon_pol0, gaps
+
+
+def fig_policy_2x7(rewards, alphas, std_pol0, canon_pol0, gaps, peak, sfx):
+    """C3 2×7: rows = 7 divergences, cols = standard (Amari) | canonical. π* dashed, π_θ solid.
+    Divergence names as left-column row labels; column titles on the top row only; Δπ (MDP-mean) as a
+    small top-right annotation. euc's canonical cell is hatched + 'canonical form not defined'."""
+    block = SN * NA
+    centers = [l * block + (block - 1) / 2 for l in range(DEPTH)]
+    fig, axes = plt.subplots(len(REGKEYS), 2, figsize=(7.0, 11.0), sharex=True, sharey=True)
+    star_h = pol_h = None
+    for r, rk in enumerate(REGKEYS):
+        sol = solve_dp(rk, rewards, uniform_pis(DEPTH), alphas[rk], GAMMA, EPS)   # π* (same for both cols)
+        star = sol.pistar.reshape(-1)
+        idx = np.arange(len(star))
+        for c, (variant, pol0, gp) in enumerate([("standard", std_pol0, gaps["std"]),
+                                                 ("canonical", canon_pol0, gaps.get("canon", {}))]):
+            ax = axes[r, c]
+            if variant == "canonical" and rk == "euc":                       # no canonical representative
+                ax.add_patch(plt.Rectangle((0, 0), 1, 1, transform=ax.transAxes, facecolor="#eee",
+                                           hatch="///", edgecolor="#bbb", lw=0))
+                ax.text(0.5, 0.5, "canonical form not defined\n(not an f-divergence)", transform=ax.transAxes,
+                        ha="center", va="center", fontsize=7.5, color="#777")
+                ax.set_xticks(centers); continue
+            est = np.asarray(pol0[rk]).reshape(-1)
+            sh, = ax.plot(idx, star, "--", color="#444", lw=1.0, marker="o", ms=1.8, zorder=2)
+            ph, = ax.plot(idx, est, "-", color=COLORS[rk], lw=2.4 if rk == "kl" else 1.6, zorder=4)
+            star_h, pol_h = sh, ph
+            for l in range(1, DEPTH):
+                ax.axvline(l * block - 0.5, color="#e6e6e6", lw=0.6)
+            if rk in gp:
+                ax.text(0.97, 0.93, f"Δπ={gp[rk][0]:.3f}", transform=ax.transAxes, ha="right", va="top",
+                        fontsize=7.5, color=COLORS[rk])
+            if rk == "kl":                                    # RKL row: the standard→canonical punchline
+                note = r"$\Psi=1-1/u$" if variant == "standard" else r"$\Psi\equiv 1$ (permissible)"
+                ax.text(0.03, 0.90, note, transform=ax.transAxes, ha="left", va="top",
+                        fontsize=7.2, color=COLORS["kl"], style="italic",
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.78))
+            ax.set_xticks(centers)
+            if r == len(REGKEYS) - 1:
+                ax.set_xticklabels([f"ℓ{l}" for l in range(DEPTH)], fontsize=7)
+        axes[r, 0].set_ylabel(SHORT[rk], color=COLORS[rk], fontsize=10)
+    axes[0, 0].set_title(r"standard (Amari, $f'(1)=0$)", fontsize=10)
+    axes[0, 1].set_title(r"canonical ($f'(1)=f''(1)$)", fontsize=10)
+    if star_h is not None:
+        fig.legend([star_h, pol_h], [r"$\pi^\star$ target", r"$\pi_\theta$ recovered"],
+                   loc="upper center", ncol=2, fontsize=9, frameon=False, bbox_to_anchor=(0.5, 1.0))
+    # B1 caption: off-policy (single logged a′), n_mc=1, peak {peak}; π_θ panels are MDP 0, Δπ is the
+    # 100-MDP mean. Under the standard (Amari, f'(1)=0) generator EVERY divergence — RKL included — carries
+    # a non-constant inner integrand (RKL: Φ=1−1/u) and misrecovers π* off-policy; the canonical column
+    # (f'(1)=f''(1)) fixes the anchor, and RKL is the UNIQUE divergence whose canonical Φ≡1 (permissible),
+    # so only its canonical panel recovers π* — the others improve but stay non-constant.
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
+    for ext in ("png", "pdf"):
+        fig.savefig(f"figs/part3_policy_2x7{sfx}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    return f"figs/part3_policy_2x7{sfx}.png"
+
+
 def fig_nmc_sweep(sweep, n_mc_list, peak, sfx):
     fig, (axOn, axOff) = plt.subplots(1, 2, figsize=(12, 4.6), sharey=True)
     for ax, key, title in [(axOn, "on", "on-policy (π*_Ω)"), (axOff, "off", "off-policy (π_ref)")]:
@@ -300,7 +400,8 @@ def main():
     rng = np.random.default_rng(0)
     print(f"[settings] peaks={PEAKS} n_mc_sweep={NMC_SWEEP} seeds={SEEDS} steps={STEPS} depth={DEPTH} eps={EPS}")
     rewards = new_rewards(DEPTH, rng)                          # MDP for the §4.2 global panels
-    N_MDP = 1 if QUICK else 3                                  # §4.3 averages over this many reward draws
+    N_MDP = int(os.environ.get("N_MDP", 1 if QUICK else 3))    # §4.3 averages over this many reward draws
+    TWOX7_NMDP = int(os.environ.get("TWOX7_NMDP", N_MDP))      # C3/A10 2×7 uses its own (larger on cluster) count
 
     results = {"meta": {"gamma": GAMMA, "eps": EPS, "depth": DEPTH, "peaks": PEAKS,
                         "n_mc_sweep": NMC_SWEEP, "seeds": SEEDS, "steps": STEPS, "npairs": NPAIRS,
@@ -346,6 +447,28 @@ def main():
         for rk in REGKEYS:
             lo = sweep["on"][rk][NMC_SWEEP[0]][0]; hi = sweep["on"][rk][NMC_SWEEP[-1]][0]
             print(f"    {SHORT[rk]:5s} {lo:.3f} → {hi:.3f}")
+
+    # ---- C3/A10 : permissibility bias curve (no training) + 2×7 recovery at high-drift peak(s) ----
+    if CANONICAL:
+        import fig_permissibility_bias as fbias
+        fbias.render()                                        # RKL≡0, others fan out (canonical forms)
+        results["global"]["figs"]["permissibility_bias"] = "figs/permissibility_bias.png"
+        rng_c = np.random.default_rng(20260826)               # dedicated stream, isolated from §4.3 path
+        results["twox7"] = {}
+        for peak in TWOX7_PEAKS:
+            sfx = f"_p{int(round(peak * 10))}"
+            print(f"\n=== C3/A10 2×7 standard-vs-canonical recovery : peak {peak} "
+                  f"({TWOX7_NMDP} MDP draws) ===")
+            a0, r0, sp, cp, gp = run_2x7(peak, rng_c, TWOX7_NMDP)
+            fpath = fig_policy_2x7(r0, a0, sp, cp, gp, peak, sfx)
+            results["twox7"][f"{peak}"] = {
+                "fig": fpath,
+                "gap": {"std": {rk: gp["std"][rk][0] for rk in REGKEYS},
+                        "canon": {rk: gp["canon"][rk][0] for rk in gp["canon"]}}}
+            print("  Δπ (std → canon):")
+            for rk in REGKEYS:
+                cv = gp["canon"].get(rk); print(f"    {SHORT[rk]:5s} {gp['std'][rk][0]:.3f}"
+                      + (f" → {cv[0]:.3f}" if cv else "  (euc: no canonical)"))
 
     with open("results_data.js", "w") as f:
         f.write("window.RESULTS = " + json.dumps(results, indent=1) + ";\n")

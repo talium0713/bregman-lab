@@ -1,0 +1,11 @@
+{
+  "paper_name": "f13_policy_2x7_canonical",
+  "source_figure": "python/figs/part3_policy_2x7_p9",
+  "source_data": "run_part3.py run_2x7/fig_policy_2x7 (CANONICAL=1) \u2014 standard(Amari,f'=0) vs canonical(f'=f'') off-policy \u03c0* recovery, peak 0.9 (high drift), 100 MDPs",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "4746cd02433cfa02afaa3d48149def22adaf1162",
+  "exported_at": "2026-08-27T16:42:45+00:00"
+}

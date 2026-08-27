@@ -346,6 +346,31 @@ def make_canonical(rk: str) -> "Regularizer":
     return Regularizer(rk, REG[rk].label, canonical_spec(REG[rk].spec))
 
 
+def standard_spec(s: "Spec") -> "Spec":
+    """Affine-renormalize an f-divergence generator to the STANDARD (Amari) form f'(1)=0: shift
+    f → f + c0(t−1), f' → f' + c0  with  c0 = −f'(1)  (f'' unchanged). This is the normalization
+    Amari's α-divergence family carries by construction (its linear terms enforce f(1)=f'(1)=0);
+    the α→1 limit is t ln t−(t−1), so KL's standard inner integrand is Φ→1−1/u (NOT the constant 1
+    of the canonical form). Same Ω/π* as REG[rk] (affine term sums to 0); only the single-sample
+    off-policy inner-term estimate differs. Not defined for euc (not an f-divergence)."""
+    if s.type == "euc":
+        raise ValueError("euc is not an f-divergence — no f'(1)=0 (Amari) representative")
+    c0 = float(-s.fp(1.0))
+    f0, fp0, inv0 = s.f, s.fp, s.inv
+    return Spec(s.key, s.label, "fdiv",
+                f=lambda t, f0=f0, c0=c0: f0(t) + c0 * (t - 1.0),
+                fp=lambda t, fp0=fp0, c0=c0: fp0(t) + c0,
+                fpp=s.fpp,
+                inv=(lambda y, inv0=inv0, c0=c0: inv0(y - c0)) if inv0 is not None else None,
+                nu_bracket=s.nu_bracket)
+
+
+def make_standard(rk: str) -> "Regularizer":
+    """The standard-normalization (Amari, f'(1)=0) representative of divergence `rk`. Same Ω/π* as
+    REG[rk], standard inner integrand Φ+c0/u. For KL this is t ln t−(t−1) ⇒ Φ=1−1/u. Raises for euc."""
+    return Regularizer(rk, REG[rk].label, standard_spec(REG[rk].spec))
+
+
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Admissibility, CHECKED not hardcoded: Ω is off-policy admissible iff its inner integrand
 # Φ(u) is constant in u (equivalently Var_{a~π}[Φ] = 0 for every π).  Returns True only for KL.

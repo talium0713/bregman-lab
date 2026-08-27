@@ -1,0 +1,11 @@
+{
+  "paper_name": "f12_permissibility_bias",
+  "source_figure": "python/figs/permissibility_bias",
+  "source_data": "fig_permissibility_bias.py \u2014 off-policy single-sample inner-term |bias| vs drift (canonical generators); RKL\u22610 uniquely permissible, others fan out",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "4746cd02433cfa02afaa3d48149def22adaf1162",
+  "exported_at": "2026-08-27T16:42:45+00:00"
+}
