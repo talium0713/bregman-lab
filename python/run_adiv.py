@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from regularizers import REG, make_adiv
+from regularizers import REG, make_adiv, make_standard, make_canonical
 from mdp import solve_dp, uniform_pis, new_rewards, SN
 from dpo import TrainConfig, make_dataset, train_one
 from experiments import calibrate
@@ -42,12 +42,15 @@ REP_A = [0.3, 0.7, 1.0, 1.3, 2.0]              # representative `a` for the morp
 
 
 def reg_for_a(a: float, kl_norm: bool = True):
-    """Exact canonical KL at a=1 (make_adiv forbids a∈{0,1}); elsewhere the α-divergence member.
-    kl_norm=True uses the KL-consistent normalization (f'(1)=1) so the inner term connects
-    continuously to REG['kl'] at a→1; kl_norm=False is the standard normalization (f'(1)=0), whose
-    a→1 limit gives Φ→1−1/u and a SPURIOUS inner-term jump at a=1 (the artifact — for the
-    before/after comparison)."""
-    return REG["kl"] if abs(a - 1.0) < 1e-9 else make_adiv(a, kl_norm=kl_norm)
+    """The α-divergence member at `a`; at a=1 make_adiv is undefined (forbids a∈{0,1}), so use the
+    exact KL representative in the SAME normalization as the neighbours — canonical (u ln u, Φ≡1) for
+    kl_norm=True, standard (u ln u−(u−1), Φ=1−1/u) for kl_norm=False. Using the canonical KL for BOTH
+    (the old behaviour) made the standard curve spuriously DIP to the canonical value only at a=1; each
+    curve must keep its own normalization through a=1 so it stays continuous (standard high, canonical
+    low — they do NOT meet at a=1)."""
+    if abs(a - 1.0) < 1e-9:
+        return make_canonical("kl") if kl_norm else make_standard("kl")
+    return make_adiv(a, kl_norm=kl_norm)
 
 
 def realized_peak(pistar):

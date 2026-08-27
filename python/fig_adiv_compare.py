@@ -51,15 +51,22 @@ def render(kln_p, std_p, paper=False):
     _, _, std = agg(std_p)
     os.makedirs("figs", exist_ok=True)
     peak = man["peak_ref"]
+    # drop the dense near-1 probe points (added only to resolve the old knife-edge); keep α=1 itself
+    a_plot = [a for a in a_grid if not (0.9 < a < 1.1 and abs(a - 1.0) > 1e-9)]
 
     if paper:
         plt.rcParams.update({"font.size": 9})
     C_STD, C_KLN = "#d9534f", "#2c7fb8"
     fig, ax = plt.subplots(figsize=(5.5, 3.7) if paper else (7.8, 4.6))
-    _plot(ax, a_grid, std, C_STD, r"standard form ($f'(1)=0$)", ls="--")
-    _plot(ax, a_grid, kln, C_KLN, r"canonical form ($f'(1)=f''(1)$)")
+    _plot(ax, a_plot, std, C_STD, r"standard form ($f'(1)=0$)", ls="--")
+    _plot(ax, a_plot, kln, C_KLN, r"canonical form ($f'(1)=f''(1)$)")
+    # α=1: the two forms do NOT meet — standard stays high (Ψ=1−1/u), only canonical is permissible (Ψ≡1)
     ax.scatter([1.0], [kln[1.0][0]], s=150, facecolors="none", edgecolors=COLORS["kl"],
-               linewidths=2.0, zorder=6, label=r"$\alpha=1$: reverse KL (shared by both)")
+               linewidths=2.0, zorder=6, label=r"$\alpha=1$: RKL — only canonical is permissible ($\Psi\equiv1$)")
+    ax.annotate("", xy=(1.0, kln[1.0][0] + 0.01), xytext=(1.0, std[1.0][0] - 0.01),
+                arrowprops=dict(arrowstyle="<->", color="#555", lw=1.2), zorder=6)
+    ax.text(1.04, 0.5 * (std[1.0][0] + kln[1.0][0]), "gap at\nRKL", fontsize=7.5,
+            color="#555", va="center", ha="left")
     ax.axvline(1.0, color=COLORS["kl"], ls=":", lw=1.0, alpha=0.6)
     ax.set_xlabel(r"divergence-family parameter  $\alpha$"
                   "\n"
