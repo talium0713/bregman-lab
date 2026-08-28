@@ -69,8 +69,8 @@ def render(kln_p, std_p, paper=False):
                 arrowprops=dict(arrowstyle="<->", color=C_KL, lw=1.7), zorder=6)
     ax.text(0.93, 0.5 * (su + cu), "regularity\ngap", fontsize=8.5, color=C_KL,
             va="center", ha="right", fontweight="bold", zorder=7)
-    ax.text(1.1, su, r"$f(u)=u\ln u-(u-1)$", fontsize=8.5, color=C_KL, va="center", ha="left", zorder=7)
-    ax.text(1.1, cu, r"$f(u)=u\ln u$", fontsize=8.5, color=C_KL, va="center", ha="left", zorder=7)
+    ax.text(1.06, su + 0.035, r"$f(u)=u\ln u-(u-1)$", fontsize=8.5, color=C_KL, va="bottom", ha="left", zorder=7)
+    ax.text(1.06, cu - 0.035, r"$f(u)=u\ln u$", fontsize=8.5, color=C_KL, va="top", ha="left", zorder=7)
     ax.axvline(1.0, color=C_KL, ls=":", lw=1.0, alpha=0.6)
     ax.set_xlabel(r"divergence-family parameter  $\alpha$"
                   "\n"
