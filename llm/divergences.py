@@ -28,15 +28,44 @@ COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
 DEFAULT_ADIV_A = 0.5
 LN2 = math.log(2.0)
 
-# kln (KL-normalization, Appendix E): shift the generator by (1−f'(1))·(t−1) so f'_kln(1)=1 for all.
-# Effect: f'_kln = f' + s, Φ_kln = Φ + s/u, C_kln = C + s  (s = 1 − f'(1)). euc excluded (Bregman).
-KLN_SHIFT = {"kl": 0.0, "rkl": 2.0, "adiv": 1.0, "js": 1.0, "hel": 1.0, "chi2": 1.0}
+# Generator normalization (Appendix E). Adding s·(t−1) to the generator is affine, so it leaves Ω/π*
+# unchanged but shifts the inner term: f'→f'+s, Φ→Φ+s/u, C→C+s (E_π[1/u]=1). The shift is chosen to
+# hit a target f'(1); the modes below mirror python/regularizers.py exactly.
+#   natural         : s=0            (each divergence's own generator; RKL f'(1)=1, adiv/js/hel/chi2 0, FKL −1)
+#   amari|standard  : f'(1)=0        s = −f'(1)          (RKL ⇒ u ln u−(u−1), Φ=1−1/u)
+#   kln             : f'(1)=1        s = 1−f'(1)         (KL-consistent; RKL is a no-op)
+#   canon           : f'(1)=f''(1)   s = f''(1)−f'(1)    (tabular canonical; RKL/FKL/adiv=1, js/hel=0.5, χ²=2)
+# euc is excluded from all normalization (Bregman, no f(u) generator).
+FP1  = {"kl": 1.0, "rkl": -1.0, "adiv": 0.0, "js": 0.0, "hel": 0.0, "chi2": 0.0}   # f'(1)
+FPP1 = {"kl": 1.0, "rkl":  1.0, "adiv": 1.0, "js": 0.5, "hel": 0.5, "chi2": 2.0}   # f''(1)
+
+
+def norm_shift(key: str, norm: str | None) -> float:
+    """The additive generator shift s for normalization mode `norm` (see table above)."""
+    if norm in (None, "natural"):
+        return 0.0
+    if norm in ("amari", "standard"):
+        return -FP1[key]
+    if norm == "kln":
+        return 1.0 - FP1[key]
+    if norm == "canon":
+        return FPP1[key] - FP1[key]
+    raise ValueError(f"unknown normalization {norm!r} (want natural|amari|kln|canon)")
+
+
+KLN_SHIFT = {k: 1.0 - FP1[k] for k in FP1}   # back-compat: == the old {"kl":0,"rkl":2,"adiv":1,...:1}
+
+
+def _norm_arg(kln: bool, norm: str | None) -> str:
+    """Resolve the legacy kln=bool and the new norm=str into one mode (norm wins if given)."""
+    return norm if norm is not None else ("kln" if kln else "natural")
 
 
 def phi_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A,
-                  kln: bool = False) -> torch.Tensor:
+                  kln: bool = False, norm: str | None = None) -> torch.Tensor:
     """Φ(u) for f-divergences, from log_u = log(π_θ/π_ref). Returns same shape as log_u (float32).
-    kln=True adds the KL-normalization shift s/u (s=1−f'(1)). NOT for 'euc'."""
+    Normalization: pass norm∈{natural,amari,kln,canon} (or legacy kln=True ⇒ norm='kln'); adds s/u
+    with s=norm_shift(key,norm). NOT for 'euc'."""
     lu = log_u if log_u.dtype == torch.float64 else log_u.float()   # keep fp64; upcast bf16/fp16
     inv_u = torch.exp(-lu)                # 1/u
     if key == "kl":
@@ -53,13 +82,15 @@ def phi_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A,
         base = (torch.exp(adiv_a * lu) - 1.0) / adiv_a * inv_u
     else:
         raise ValueError(f"unknown / non-scalar key {key!r}")
-    return base + KLN_SHIFT[key] * inv_u if kln else base      # Φ_kln = Φ + s/u
+    s = norm_shift(key, _norm_arg(kln, norm))
+    return base + s * inv_u if s != 0.0 else base              # Φ_norm = Φ + s/u
 
 
 def fprime_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV_A,
-                     kln: bool = False) -> torch.Tensor:
+                     kln: bool = False, norm: str | None = None) -> torch.Tensor:
     """f'(u) at logged tokens — the DPO chosen-action term [∇Ω]_a — from log_u = log(π_θ/π_ref).
-    kln=True adds the constant shift s=1−f'(1) (so f'_kln(1)=1). NOT for 'euc'.
+    Normalization: norm∈{natural,amari,kln,canon} (or legacy kln=True); adds the constant s=norm_shift.
+    NOT for 'euc'.
 
     Identity used by the RKL anchor: f'(u) − Φ(u) = f(u)/u, and for RKL f/u = ln u, so the
     single-sample score Σ[f'−Φ] = Σ ln u = the standard DPO log-ratio (see stage_b_train)."""
@@ -79,7 +110,7 @@ def fprime_from_logu(key: str, log_u: torch.Tensor, adiv_a: float = DEFAULT_ADIV
         base = (torch.exp((adiv_a - 1.0) * lu) - 1.0) / (adiv_a - 1.0)
     else:
         raise ValueError(f"unknown / non-scalar key {key!r}")
-    return base + KLN_SHIFT[key] if kln else base             # f'_kln = f' + s
+    return base + norm_shift(key, _norm_arg(kln, norm))       # f'_norm = f' + s
 
 
 def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
@@ -89,7 +120,8 @@ def phi_euc(p_policy: torch.Tensor, p_ref: torch.Tensor) -> torch.Tensor:
 
 def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
             adiv_a: float = DEFAULT_ADIV_A, chunk: int = 256,
-            dtype: torch.dtype = torch.float64, kln: bool = False) -> torch.Tensor:
+            dtype: torch.dtype = torch.float64, kln: bool = False,
+            norm: str | None = None) -> torch.Tensor:
     """Closed-form inner term C_Ω(π_θ(·|s)) = Σ_a π_θ(a)·Φ(u_a), summed over the FULL vocab.
     log_pi, log_ref: full-vocab log-probs, shape [T, V]. Returns [T] (per position).
     RKL comes out exactly 1 by arithmetic; euc uses its own Bregman form.
@@ -110,4 +142,5 @@ def exact_C(key: str, log_pi: torch.Tensor, log_ref: torch.Tensor,
         else:
             outs.append((pi * phi_from_logu(key, lp - lr, adiv_a)).sum(-1))
     C = torch.cat(outs)
-    return C + KLN_SHIFT[key] if (kln and key != "euc") else C   # C_kln = C + s (since E_π[1/u]=1)
+    s = 0.0 if key == "euc" else norm_shift(key, _norm_arg(kln, norm))
+    return C + s                                                 # C_norm = C + s (since E_π[1/u]=1)

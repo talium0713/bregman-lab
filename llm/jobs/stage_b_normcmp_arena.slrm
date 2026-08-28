@@ -1,0 +1,46 @@
+#!/bin/bash
+# standard-vs-canonical on Arena-Hard: the LLM mirror of the tabular f13 (standard=Amari f'(1)=0 vs
+# canonical f'(1)=f''(1)). The EXISTING base->f-DPO sweep (jobs/stage_b_base_fdpo.slrm, no --norm) already
+# gives the standard arm for adiv/js/hel/chi2 (their natural f'(1)=0 IS Amari). This job adds the 6 missing
+# cells, IDENTICAL recipe otherwise (init-noise 0.01, token, single-sample, lr5e-6/b64/2ep):
+#   RKL(kl) --norm amari  -> f'(1)=0, Φ=1−1/u  (RKL's true STANDARD form; its existing run is f'(1)=1=canonical)
+#   {adiv,js,hel,chi2,rkl} --norm canon -> f'(1)=f''(1)  (the CANONICAL arm; RKL-canonical reuses the existing kl run)
+#   array 0-5 = kl:amari adiv:canon js:canon hel:canon chi2:canon rkl:canon
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/stage_b_normcmp_arena.slrm
+# Output: results/bench/stageB_{div}_{norm}_bdpo_token_bench1p7b_policy (+ .json curve)
+# Then gen (jobs/gen_normcmp_arena.slrm) + run_arena_v01_judge.sh  (judge = OpenAI API).
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=normcmp
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-5
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=20:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+SPECS=(kl:amari adiv:canon js:canon hel:canon chi2:canon rkl:canon)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"
+DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+
+echo "=== base->f-DPO [$DIV, norm=$NORM] (init-noise 0.01, token) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy Qwen/Qwen3-1.7B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/bench/stageB_${DIV}_${NORM}_bdpo_token_bench1p7b"
+echo "=== done base->f-DPO [$DIV, norm=$NORM] | $(date) ==="

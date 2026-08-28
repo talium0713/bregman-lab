@@ -1,0 +1,41 @@
+#!/bin/bash
+# Arena-Hard v0.1 GENERATION (RePO-match) for the 6 standard-vs-canonical policies trained by
+# jobs/stage_b_normcmp_arena.slrm. Same regime as gen_base_fdpo_arena.slrm (open turn + system prompt +
+# rep_penalty 1.05 + greedy + max 1024) so the win-rates are directly comparable to the existing sweep.
+#   array 0-5 = kl:amari adiv:canon js:canon hel:canon chi2:canon rkl:canon -> tags {div}_{norm}_bdpo
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/gen_normcmp_arena.slrm
+# Output: results/bench/arena_v01/{div}_{norm}_bdpo.jsonl
+# Then judge: JUDGE=gpt-4.1-2025-04-14 bash run_arena_v01_judge.sh   (needs OPENAI_API_KEY)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=gennormcmp
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-5
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+SPECS=(kl:amari adiv:canon js:canon hel:canon chi2:canon rkl:canon)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"
+DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+TAG="${DIV}_${NORM}_bdpo"
+POL="results/bench/stageB_${DIV}_${NORM}_bdpo_token_bench1p7b_policy"
+[ -d "$POL" ] || { echo "policy $POL missing"; exit 1; }
+
+echo "=== gen Arena-Hard v0.1 [$TAG] (RePO-match) from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG -> results/bench/arena_v01/${TAG}.jsonl | $(date) ==="
