@@ -60,18 +60,22 @@ def render(kln_p, std_p, paper=False):
     fig, ax = plt.subplots(figsize=(5.5, 3.7) if paper else (7.8, 4.6))
     _plot(ax, a_plot, std, C_STD, r"standard form ($f'(1)=0$)", ls="--")
     _plot(ax, a_plot, kln, C_KLN, r"canonical form ($f'(1)=f''(1)$)")
-    # α=1: the two forms do NOT meet — standard stays high (Ψ=1−1/u), only canonical is permissible (Ψ≡1)
-    ax.scatter([1.0], [kln[1.0][0]], s=150, facecolors="none", edgecolors=COLORS["kl"],
-               linewidths=2.0, zorder=6, label=r"$\alpha=1$: RKL — only canonical is permissible ($\Psi\equiv1$)")
-    ax.annotate("", xy=(1.0, kln[1.0][0] + 0.01), xytext=(1.0, std[1.0][0] - 0.01),
-                arrowprops=dict(arrowstyle="<->", color="#555", lw=1.2), zorder=6)
-    ax.text(1.04, 0.5 * (std[1.0][0] + kln[1.0][0]), "gap at\nRKL", fontsize=7.5,
-            color="#555", va="center", ha="left")
-    ax.axvline(1.0, color=COLORS["kl"], ls=":", lw=1.0, alpha=0.6)
+    # α=1 = RKL on BOTH forms (same divergence, different generator): they do NOT meet. The performance
+    # difference is set purely by the generator's regularity (standard f=u ln u−(u−1) vs canonical f=u ln u).
+    su, cu = std[1.0][0], kln[1.0][0]
+    C_KL = COLORS["kl"]
+    ax.scatter([1.0, 1.0], [su, cu], s=150, facecolors="none", edgecolors=C_KL, linewidths=2.0, zorder=6)
+    ax.annotate("", xy=(1.0, cu + 0.012), xytext=(1.0, su - 0.012),
+                arrowprops=dict(arrowstyle="<->", color=C_KL, lw=1.7), zorder=6)
+    ax.text(0.93, 0.5 * (su + cu), "regularity\ngap", fontsize=8.5, color=C_KL,
+            va="center", ha="right", fontweight="bold", zorder=7)
+    ax.text(1.1, su, r"$f(u)=u\ln u-(u-1)$", fontsize=8.5, color=C_KL, va="center", ha="left", zorder=7)
+    ax.text(1.1, cu, r"$f(u)=u\ln u$", fontsize=8.5, color=C_KL, va="center", ha="left", zorder=7)
+    ax.axvline(1.0, color=C_KL, ls=":", lw=1.0, alpha=0.6)
     ax.set_xlabel(r"divergence-family parameter  $\alpha$"
                   "\n"
                   r"($\alpha\!\to\!0$: FKL   $\alpha\!=\!1$: RKL   $\alpha\!=\!2$: $\chi^2$)")
-    ax.set_ylabel(r"recovery gap $\Delta_\pi$ (mean TV to $\pi^\star$)")
+    ax.set_ylabel(r"recovery gap $\Delta_\pi$ = mean TV$(\pi_\theta \,\|\, \pi^\star)$")
     ax.set_ylim(0, 0.55)
     ax.grid(alpha=0.2)
 
