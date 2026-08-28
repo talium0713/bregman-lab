@@ -1,10 +1,12 @@
 #!/bin/bash
-# standard-vs-canonical on Arena-Hard: the LLM mirror of the tabular f13 (standard=Amari f'(1)=0 vs
-# canonical f'(1)=f''(1)). The EXISTING base->f-DPO sweep (jobs/stage_b_base_fdpo.slrm, no --norm) already
-# gives the standard arm for adiv/js/hel/chi2 (their natural f'(1)=0 IS Amari). This job adds the 6 missing
-# cells, IDENTICAL recipe otherwise (init-noise 0.01, token, single-sample, lr5e-6/b64/2ep):
-#   RKL(kl) --norm amari  -> f'(1)=0, Φ=1−1/u  (RKL's true STANDARD form; its existing run is f'(1)=1=canonical)
-#   {adiv,js,hel,chi2,rkl} --norm canon -> f'(1)=f''(1)  (the CANONICAL arm; RKL-canonical reuses the existing kl run)
+# standard-vs-canonical on Arena-Hard: the LLM mirror of the tabular f13. "standard" = the CONVENTIONAL
+# generator each divergence is normally used with = the EXISTING base->f-DPO sweep (jobs/stage_b_base_fdpo.slrm,
+# no --norm): RKL f'(1)=1, adiv/js/hel/chi2 f'(1)=0, FKL f'(1)=-1. No new "standard" runs are needed (we do
+# NOT force Amari f'(1)=0). This job adds only the CANONICAL arm + one RKL ablation, IDENTICAL recipe
+# otherwise (init-noise 0.01, token, single-sample, lr5e-6/b64/2ep):
+#   {adiv,js,hel,chi2,rkl} --norm canon -> f'(1)=f''(1)  (the CANONICAL arm; RKL-canonical = the existing kl run, reused)
+#   RKL(kl) --norm amari  -> f'(1)=0, Φ=1−1/u  (ABLATION: RKL's conventional form IS canonical, so this asks
+#                             "does RKL's win depend on the canonical form?" — Amari-RKL is expected to degrade)
 #   array 0-5 = kl:amari adiv:canon js:canon hel:canon chi2:canon rkl:canon
 # Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/stage_b_normcmp_arena.slrm
 # Output: results/bench/stageB_{div}_{norm}_bdpo_token_bench1p7b_policy (+ .json curve)
