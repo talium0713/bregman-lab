@@ -73,13 +73,14 @@ _key = os.environ.get("OPENAI_API_KEY") or ""
 if len(_key) < 40 and os.path.exists("openai_key.txt"):   # robust: read the key file directly (no fragile tr)
     _key = open("openai_key.txt").read().strip()
 client = OpenAI(api_key=_key)
+H2H_JUDGE = os.environ.get("H2H_JUDGE", "gpt-4.1-2025-04-14")   # override to a cheaper judge (e.g. gpt-4.1-mini)
 _first_err = [True]           # surface the first API error (don't silently swallow 401/quota for 40 min)
 def call(q, ansA, ansB, tries=4):
     user = TEMPLATE.format(QUESTION=q, ANSWER_A=ansA, ANSWER_B=ansB)
     for t in range(tries):
         try:
             r = client.chat.completions.create(
-                model="gpt-4.1-2025-04-14",
+                model=H2H_JUDGE,
                 messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
                 temperature=0.0, max_tokens=4096)
             return get_verdict(r.choices[0].message.content or "")
@@ -159,7 +160,7 @@ def main():
            "win_rate": round(wr * 100, 1), "ci_lo": round(lo * 100, 1), "ci_hi": round(hi * 100, 1)}
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     json.dump(out, open(args.out, "w"), indent=2)
-    print(f"\n=== {args.a} vs {args.b} (head-to-head, arena judge gpt-4.1-2025-04-14, 2 games/prompt) ===")
+    print(f"\n=== {args.a} vs {args.b} (head-to-head, judge {H2H_JUDGE}, 2 games/prompt) ===")
     print(f"{args.a} win rate vs {args.b}: {out['win_rate']}%  (95% CI {out['ci_lo']}-{out['ci_hi']})")
     print(f"  games={n_games} (nulls {nulls}) | {args.a} wins {wins} · ties {ties} · losses {losses}")
 
