@@ -1,13 +1,13 @@
 {
-  "paper_name": "t06_alpha_sweep",
-  "source_figure": "python/figs/t06_alpha_sweep",
-  "source_data": "fig_paper_layered_v2.py \u2014 the alpha family under both normalizations, one panel per calibration peak (0.6/0.7/0.8).",
+  "paper_name": "t03_recovery_vs_nmc",
+  "source_figure": "python/figs/t03_recovery_vs_nmc",
+  "source_data": "fig_paper_layered.py -> fig_recovery_vs_nmc - data/tabular/run_20260629_182331 (100 MDPs, peak 0.7); on-policy and off-policy panels, +-95% CI. n_mc does not enter the off-policy estimator.",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
-  "exported_at": "2026-09-16T21:45:42+00:00",
+  "git_commit": "d6a06eac51bea51581c5e78a37615145176a6a70",
+  "exported_at": "2026-09-16T20:35:20+00:00",
   "config": {
     "env": {
       "depth": 4,

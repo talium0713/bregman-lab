@@ -53,29 +53,27 @@ FIGS = {
                                     "cell (not an f-divergence). RKL's canonical arm equals its exact arm to "
                                     "machine precision — the sample-free property."),
     # ── layered-MDP regeneration of the paper's legacy tree figures (round 0916-B, option c) ──
-    "t01_single_state_variance":   ("python/figs/mechanism_single_state",
-                                    "fig_mechanism.py -> fig_single_state — std of the n-sample inner-term "
-                                    "estimator vs n, per regularizer; RKL exactly 0 (Phi_KL == 1)"),
-    "t02_trajectory_compounding":  ("python/figs/mechanism_trajectory",
-                                    "fig_mechanism.py -> fig_trajectory — per-trajectory std of the summed "
-                                    "inner term vs horizon H, sqrt(H-1) growth; RKL exactly 0"),
-    "t03_recovery_vs_nmc":         ("python/figs/t03_recovery_vs_nmc",
-                                    "fig_paper_layered.py -> fig_recovery_vs_nmc - data/tabular/"
-                                    "run_20260629_182331 (100 MDPs, peak 0.7); on-policy and off-policy "
-                                    "panels, +-95% CI. n_mc does not enter the off-policy estimator."),
+    "t01_single_state_variance":   ("python/figs/t01_single_state_variance",
+                                    "fig_mechanism.py — 2x2: rows are the generator normalization (Amari "
+                                    "f'(1)=0 vs canonical f'(1)=f''(1)), columns the value and the spread of "
+                                    "the Eq. 9 estimator Psi_hat^(n). Amari RKL has ordinary nonzero variance; "
+                                    "only canonical RKL is Psi == 1."),
+    "t02_trajectory_compounding":  ("python/figs/t02_trajectory_compounding",
+                                    "fig_mechanism.py — the same 2x2 split for the trajectory sum; "
+                                    "non-admissible spread grows as sqrt(H-1) in both rows, canonical RKL "
+                                    "stays exactly 0."),
     "t04_state_anatomy":           ("python/figs/t04_state_anatomy",
-                                    "fig_paper_layered.py -> fig_state_anatomy - recovered policy vs target "
-                                    "at each of the twelve (layer, state) cells [design option 1], plus the "
-                                    "per-cell TV the gap integrates over. Off-policy, n_mc=1, MDP 0."),
-    "t05_peaked_reference":        ("python/figs/t05_peaked_reference",
-                                    "run_t05_peaked.py + fig_paper_layered_t05t06.py - the t03 curves under a "
-                                    "peaked reference pi_ref=(0.6,0.2,0.2); behaviour policy stays uniform"),
+                                    "fig_paper_layered_v2.py — 2x7 at peak 0.7: rows are the seven "
+                                    "regularizers, columns Amari vs canonical; pi* (dashed, recomputed with "
+                                    "solve_dp) against the recovered policy over the twelve cells."),
+    "t04_state_anatomy_p9":        ("python/figs/t04_state_anatomy_p9",
+                                    "fig_paper_layered_v2.py — the same 2x7 at peak 0.9 (high drift)."),
     "t06_alpha_sweep":             ("python/figs/t06_alpha_sweep",
-                                    "run_t06_alpha_nmc.py + fig_paper_layered_t05t06.py - policy gap along the "
-                                    "alpha family vs the MC budget; temperature pinned to RKL@peak 0.7"),
+                                    "fig_paper_layered_v2.py — the alpha family under both "
+                                    "normalizations, one panel per calibration peak (0.6/0.7/0.8)."),
     "t07_calibration":             ("python/figs/t07_calibration",
-                                    "fig_paper_layered.py -> fig_calibration — policy peak vs the "
-                                    "regularization weight with the calibrated anchors (MDP 0)"),
+                                    "fig_paper_layered.py — policy peak vs the regularization weight, with "
+                                    "the calibrated anchors at all three target peaks (MDP 0)."),
     "fL1_arena_winrate":           ("llm/results/stageB_divergence_wr",
                                     "fig_permissibility_wr.py · llm/results/bench/arena_v01/divergence_wr.json"),
     "fL2_head_to_head":            ("llm/results/stageB_divergence_h2h",

@@ -1,13 +1,13 @@
 {
   "paper_name": "t01_single_state_variance",
-  "source_figure": "python/figs/mechanism_single_state",
-  "source_data": "fig_mechanism.py -> fig_single_state \u2014 std of the n-sample inner-term estimator vs n, per regularizer; RKL exactly 0 (Phi_KL == 1)",
+  "source_figure": "python/figs/t01_single_state_variance",
+  "source_data": "fig_mechanism.py \u2014 2x2: rows are the generator normalization (Amari f'(1)=0 vs canonical f'(1)=f''(1)), columns the value and the spread of the Eq. 9 estimator Psi_hat^(n). Amari RKL has ordinary nonzero variance; only canonical RKL is Psi == 1.",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "cfb6fa4c5856e8d449a72575be37063cd4a258eb",
-  "exported_at": "2026-09-16T19:29:08+00:00",
+  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
+  "exported_at": "2026-09-16T21:45:42+00:00",
   "config": {
     "env": {
       "depth": 4,

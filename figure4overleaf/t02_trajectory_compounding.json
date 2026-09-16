@@ -1,13 +1,13 @@
 {
   "paper_name": "t02_trajectory_compounding",
-  "source_figure": "python/figs/mechanism_trajectory",
-  "source_data": "fig_mechanism.py -> fig_trajectory \u2014 per-trajectory std of the summed inner term vs horizon H, sqrt(H-1) growth; RKL exactly 0",
+  "source_figure": "python/figs/t02_trajectory_compounding",
+  "source_data": "fig_mechanism.py \u2014 the same 2x2 split for the trajectory sum; non-admissible spread grows as sqrt(H-1) in both rows, canonical RKL stays exactly 0.",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "cfb6fa4c5856e8d449a72575be37063cd4a258eb",
-  "exported_at": "2026-09-16T19:29:08+00:00",
+  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
+  "exported_at": "2026-09-16T21:45:42+00:00",
   "config": {
     "env": {
       "depth": 4,

@@ -1,13 +1,13 @@
 {
   "paper_name": "t04_state_anatomy",
   "source_figure": "python/figs/t04_state_anatomy",
-  "source_data": "fig_paper_layered.py -> fig_state_anatomy - recovered policy vs target at each of the twelve (layer, state) cells [design option 1], plus the per-cell TV the gap integrates over. Off-policy, n_mc=1, MDP 0.",
+  "source_data": "fig_paper_layered_v2.py \u2014 2x7 at peak 0.7: rows are the seven regularizers, columns Amari vs canonical; pi* (dashed, recomputed with solve_dp) against the recovered policy over the twelve cells.",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "cfb6fa4c5856e8d449a72575be37063cd4a258eb",
-  "exported_at": "2026-09-16T19:29:08+00:00",
+  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
+  "exported_at": "2026-09-16T21:45:42+00:00",
   "config": {
     "env": {
       "depth": 4,

@@ -1,13 +1,13 @@
 {
-  "paper_name": "t03_recovery_vs_nmc",
-  "source_figure": "python/figs/t03_recovery_vs_nmc",
-  "source_data": "fig_paper_layered.py -> fig_recovery_vs_nmc - data/tabular/run_20260629_182331 (100 MDPs, peak 0.7); on-policy and off-policy panels, +-95% CI. n_mc does not enter the off-policy estimator.",
+  "paper_name": "t04_state_anatomy_p9",
+  "source_figure": "python/figs/t04_state_anatomy_p9",
+  "source_data": "fig_paper_layered_v2.py \u2014 the same 2x7 at peak 0.9 (high drift).",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "cfb6fa4c5856e8d449a72575be37063cd4a258eb",
-  "exported_at": "2026-09-16T19:29:08+00:00",
+  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
+  "exported_at": "2026-09-16T21:45:42+00:00",
   "config": {
     "env": {
       "depth": 4,

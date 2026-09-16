@@ -93,7 +93,7 @@ def c_violation(eps: float, c_vals=(0.6, 1.0, 1.6), behave=(1 / 3, 1 / 3, 1 / 3)
 
 
 def single_state_variance(reg_key: str, ns, n_draws: int = 1500, n_actions: int = 100,
-                          scale: float = 3.0, ref=None, seed: int = 0):
+                          scale: float = 3.0, ref=None, seed: int = 0, reg=None):
     """
     Paper §4.2 single-state experiment (Fig 3). One state, |A|=n_actions, π_ref uniform,
     π = softmax(N(0,1)·scale) (peak ≈0.24 at scale=3). For each n, the n-sample Φ-form estimator
@@ -101,7 +101,7 @@ def single_state_variance(reg_key: str, ns, n_draws: int = 1500, n_actions: int 
     KL: mean≡1, std≡0 at every n; non-KL std decays as 1/√n.
     """
     rng = np.random.default_rng(seed)
-    R = REG[reg_key]
+    R = reg if reg is not None else REG[reg_key]   # `reg` overrides the normalization (amari/canonical)
     logits = rng.standard_normal(n_actions) * scale
     p = np.exp(logits - logits.max()); p = p / p.sum()
     ref = _as_ref(ref, n_actions) if ref is not None else np.full(n_actions, 1.0 / n_actions)
@@ -121,7 +121,7 @@ def single_state_variance(reg_key: str, ns, n_draws: int = 1500, n_actions: int 
 
 
 def trajectory_variance(reg_key: str, Hs, n_mc: int = 8, n_real: int = 8000, n_actions: int = 100,
-                        scale: float = 1.0, ref=None, seed: int = 0):
+                        scale: float = 1.0, ref=None, seed: int = 0, reg=None):
     """
     Paper §4.2 trajectory experiment (Fig 4). A horizon-H rollout contributes H−1 independent
     inner-term draws to the per-trajectory implicit reward; each draw is an n_mc-sample Φ-form
@@ -130,7 +130,7 @@ def trajectory_variance(reg_key: str, Hs, n_mc: int = 8, n_real: int = 8000, n_a
     KL: S = H−1 exactly (std 0); non-KL std grows as √(H−1).
     """
     rng = np.random.default_rng(seed)
-    R = REG[reg_key]
+    R = reg if reg is not None else REG[reg_key]   # `reg` overrides the normalization (amari/canonical)
     logits = rng.standard_normal(n_actions) * scale
     p = np.exp(logits - logits.max()); p = p / p.sum()
     ref = _as_ref(ref, n_actions) if ref is not None else np.full(n_actions, 1.0 / n_actions)
@@ -163,7 +163,7 @@ def single_state_std(reg_key: str, ns, n_draws: int = 500, n_actions: int = 100,
     `ref` defaults to uniform.  Returns {n: std}.  For KL this is identically 0 (Φ_KL≡1, computed).
     """
     rng = np.random.default_rng(seed)
-    R = REG[reg_key]
+    R = reg if reg is not None else REG[reg_key]   # `reg` overrides the normalization (amari/canonical)
     logits = rng.standard_normal(n_actions) * scale
     p = np.exp(logits - logits.max())
     p = p / p.sum()
