@@ -1,0 +1,37 @@
+{
+  "paper_name": "t05_peaked_reference",
+  "source_figure": "python/figs/t05_peaked_reference",
+  "source_data": "run_t05_peaked.py + fig_paper_layered_t05t06.py - the t03 curves under a peaked reference pi_ref=(0.6,0.2,0.2); behaviour policy stays uniform",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "d6a06eac51bea51581c5e78a37615145176a6a70",
+  "exported_at": "2026-09-16T20:35:20+00:00",
+  "config": {
+    "env": {
+      "depth": 4,
+      "SN": 3,
+      "NA": 3,
+      "eps": 0.2,
+      "gamma": 0.9,
+      "reward": "Uniform(-0.8,0.8) on every (layer, state, action)",
+      "transitions": "depend on the action only; s'=a w.p. 1-eps, else uniform over the rest"
+    },
+    "start": "uniform over the three layer-0 states",
+    "pi_ref": "uniform at every state (t05 overrides this with a peaked reference)",
+    "oracle": "Bradley-Terry on gamma-discounted trajectory return differences, temperature 1",
+    "runs": "100 independently drawn MDPs, one training seed each",
+    "weight": "calibrated per (regularizer, target peak) by bisection, not a fixed beta",
+    "adiv": "alpha = 0.5 (DEFAULT_ADIV_A)",
+    "roster": [
+      "RKL",
+      "alpha-div",
+      "FKL",
+      "JS",
+      "squared Hellinger",
+      "Pearson chi^2",
+      "squared Euclidean"
+    ]
+  }
+}
