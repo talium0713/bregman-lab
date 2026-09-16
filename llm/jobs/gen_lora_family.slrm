@@ -1,0 +1,49 @@
+#!/bin/bash
+# Arena-Hard v0.1 generation for the cross-family LoRA policies, at --max-new 2048.
+#
+# 2048, NOT 1024, and the same for every arm on this axis. gemma-3-1b-it is verbose: untrained it
+# sits at median 1024 with 62.4% hitting a 1024 cap, but at 2048 its median is 1157 and only 2.4%
+# are still truncated -- it terminates, it just writes long. Judging it at 1024 would score
+# truncation rather than answer quality. Llama-3.2-1B-Instruct is unaffected either way (574 -> 588,
+# 9.6% -> 3.2%), so raising the cap costs nothing and keeps the axis internally consistent.
+#
+# These numbers are therefore NOT comparable to the 1024 rows of the Qwen3 scale table. What is
+# compared across families is the canonical-minus-Amari gap within each family, not absolute rates.
+#
+#   array index matches stage_b_lora_family_l40s.slrm: 0-5 llama, 6-11 gemma
+# Output: results/bench/arena_v01/lora{llama1b,gemma1b}_kl_{amari,canon}_bdpo_s{0,1,2}_mn2048.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=glorafam
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-11%4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+I=$SLURM_ARRAY_TASK_ID
+if [ "$I" -lt 6 ]; then FAM=llama1b; else FAM=gemma1b; fi
+J=$((I % 6)); SEED=$((J / 2)); NORMS=(amari canon); NORM="${NORMS[$((J % 2))]}"; DIV=kl
+
+POL="/scratch/$USER/bregman-lab/llm/results/bench/stageB_lora${FAM}_${DIV}_${NORM}_bdpo_token_s${SEED}_policy"
+TAG="lora${FAM}_${DIV}_${NORM}_bdpo_s${SEED}_mn2048"
+[ -d "$POL" ] || { echo "policy $POL missing — train it first"; exit 1; }
+
+echo "=== gen Arena-Hard v0.1 [$TAG] max-new 2048 from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 2048 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="
