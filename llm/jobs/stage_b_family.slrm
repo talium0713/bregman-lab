@@ -1,0 +1,55 @@
+#!/bin/bash
+# Cross-family check — RKL only (kl), Amari vs canonical, on model families other than Qwen3.
+# The point is not "another brand works" but the vocabulary axis: the mechanism predicts the
+# inner-term gap grows with |V|, and these families bracket Qwen3's 152k.
+#     Llama-3.2-1B   |V| = 128k   (0.85x Qwen3)
+#     Gemma-3-1B-pt  |V| = 262k   (1.7x  Qwen3)
+# Same recipe as every other scale run (2 epochs, token, sample, lr5e-6/b64, init-noise 0.01),
+# so these sit directly alongside the 1.7B/4B/8B Qwen numbers.
+#
+# Array index: 0 llama:amari  1 llama:canon  2 gemma:amari  3 gemma:canon
+# Submit FROM llm/:   sbatch --array=2-3 jobs/stage_b_family.slrm     # gemma only (llama still gated)
+#                     sbatch --array=0-3 jobs/stage_b_family.slrm     # once Meta approves
+#
+# NOTE on memory: stage_b_train.py materialises fp32 logits of shape [T, |V|]. At max-len 1024
+# that is 0.62 GB for Qwen3 but 1.07 GB for Gemma-3 (|V|=262k), held for policy AND ref, so this
+# asks for a full H100 even though the models are only 1B.
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=swfam
+#SBATCH --gres=gpu:h100:1
+#SBATCH --array=0-3
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=200G
+#SBATCH --time=11:30:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"
+
+MODELS=(meta-llama/Llama-3.2-1B meta-llama/Llama-3.2-1B google/gemma-3-1b-pt google/gemma-3-1b-pt)
+TAGS=(llama1b llama1b gemma1b gemma1b)
+NORMS=(amari canon amari canon)
+M="${MODELS[$SLURM_ARRAY_TASK_ID]}"; TAG="${TAGS[$SLURM_ARRAY_TASK_ID]}"; NORM="${NORMS[$SLURM_ARRAY_TASK_ID]}"
+DIV=kl
+
+echo "=== family [$TAG, $DIV, norm=$NORM] model=$M on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref "$M" --policy "$M" --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed 0 --save-policy \
+  --out "$OUT_DIR/stageB_${TAG}_${DIV}_${NORM}_bdpo_token"
+echo "=== done family [$TAG, $DIV, norm=$NORM] | $(date) ==="

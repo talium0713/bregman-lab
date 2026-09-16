@@ -1,0 +1,126 @@
+#,Priority,Paper,Venue,arXiv / URL,BibTeX,Location in current draft ,Main message (one line),Why it matters here 
+1,High,Correcting the Mythos of KL-Regularization: Direct Alignment without Overoptimization via Chi-Squared Preference Optimization (chi^2PO),ICLR 2025,arXiv:2407.13399,"@inproceedings{huang2025chipo,
+  title={Correcting the Mythos of {KL}-Regularization: Direct Alignment without Overoptimization via $\chi^2$-Preference Optimization},
+  author={Huang, Audrey and Zhan, Wenhao and Xie, Tengyang and Lee, Jason D. and Sun, Wen and Krishnamurthy, Akshay and Foster, Dylan J.},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2025}
+}",NOT CITED. Related work para 3 (lines 697-706); Conclusion line 558 ('We do not claim that KL is preferable under every objective'); optionally Intro line 043.,"chi^2 (mixed with KL) regularization gives single-policy-concentrability guarantees against over-optimization, but only in the bandit/response-level setting; the natural 'why not chi^2?' objection to our KL-uniqueness claim.","Their coverage coefficient is trajectory-level chi^2 (their App. D), so their guarantee never touches the multi-step inner term; say this explicitly."
+2,High,f-Divergence Regularized RLHF: Two Tales of Sampling and Unified Analyses,ICML 2026,arXiv:2605.06977,"@inproceedings{wu2026fdivergence,
+  title={$f$-Divergence Regularized {RLHF}: Two Tales of Sampling and Unified Analyses},
+  author={Wu, Di and Shi, Chengshuai and Yang, Jing and Shen, Cong},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2026}
+}","Intro lines 039-043 (f-divergence generalizations); Related work para 3, right after Wang et al. (2024) at lines 699-700.",Online RLHF with general f-divergence regularization gets O(log T) regret / O(1/T) gap via two sampling schemes; the on-policy side of general-f regularization.,"their guarantees use sampling from the current policy, which is exactly what off-policy permissibility rules out for every f except reverse KL."
+3,High,Better Estimation of the Kullback-Leibler Divergence Between Language Models,NeurIPS 2025,arXiv:2504.10637,"@inproceedings{amini2025better,
+  title={Better Estimation of the {K}ullback--{L}eibler Divergence Between Language Models},
+  author={Amini, Afra and Vieira, Tim and Cotterell, Ryan},
+  booktitle={Advances in Neural Information Processing Systems (NeurIPS)},
+  year={2025}
+}",Sec. 4 'Switching the estimator on and off' lines 475-483 and Fig. 7 (exact full-vocabulary arm); App. C.1 lines 1052-1056 ('exact regime available only when |A| is small'); App. D.16 vocabulary scaling.,A Rao-Blackwellized KL estimator (exact next-token summation instead of a single sampled token) has provably lower variance and stabilizes RLHF training. They use the whole vocab |A| at every position (token),"Their RB estimator is literally the ""exact inner term"" of Fig. 7 at token level, so in our App. C.1's ""available only when |A| is small"" should be softened."
+4,High,Efficient KL Divergence Estimation via Truncated Top-K Integration for Large Language Models (TIKE),ACL 2026 (Long),https://aclanthology.org/2026.acl-long.405/,"@inproceedings{wang-etal-2026-efficient-kl,
+  title = ""Efficient {KL} Divergence Estimation via Truncated Top-K Integration for Large Language Models"",
+  author = ""Wang, Xinyuan and Jin, Luozhijie and Wang, Bo and Li, Yuan and Yin, Zhangyue and Qiu, Xipeng"",
+  booktitle = ""Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)"",
+  month = jul, year = ""2026"", address = ""San Diego, California, United States"",
+  publisher = ""Association for Computational Linguistics"",
+  url = ""https://aclanthology.org/2026.acl-long.405/"", doi = ""10.18653/v1/2026.acl-long.405"", pages = ""8973--8985""
+}","Same as above: lines 475-483, Fig. 7, App. C.1 lines 1052-1056, App. D.16.","Deterministic integration over the top-k tokens tracks the exact Rao-Blackwellized KL with near-zero variance at low memory, with importance weights for off-policy use.",Second published data point that the exact/near-exact next-token sum is cheap; together with Amini et al. it reframes 'exact arm' from control to practical option.
+5,High,On the Design of KL-Regularized Policy Gradient Algorithms for LLM Reasoning (RPG),ICLR 2026,arXiv:2505.17508,"@inproceedings{zhang2026rpg,
+  title={On the Design of {KL}-Regularized Policy Gradient Algorithms for {LLM} Reasoning},
+  author={Zhang, Yifan and Liu, Yifeng and Yuan, Huizhuo and Yuan, Yang and Gu, Quanquan and Yao, Andrew Chi-Chih},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}","Sec. 3.3 lines 343-352 (Schulman low-variance estimator, importance weighting); Intro lines 044-049 (off-policy compromises); Related work para 1 lines 679-687.","Unified derivation of forward/reverse, normalized/unnormalized KL regularizers with correct gradient estimators and clipped importance-sampling variants for off-policy LLM RL. Overall, an interesintg paper.",Shows the estimator-design question we raise for general Omega is live even for KL itself in on-policy RL.
+6,High,Rethinking KL Regularization in RLHF: From Value Estimation to Gradient Optimization,ICLR 2026,arXiv:2510.01555,"@inproceedings{liu2026rethinking,
+  title={Rethinking {KL} Regularization in {RLHF}: From Value Estimation to Gradient Optimization},
+  author={Liu, Kezhao and Liu, Jason Klein and Chen, Mingtao and Liu, Yiming},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}",Sec. 3.3 lines 343-352; Sec. 4 lines 475-483 (three estimator arms).,k1/k2/k3 KL estimators used as losses vs. rewards: 'k3 as loss' (GRPO) is a biased first-order approximation with a chi^2-like heavy tail; gives principled off-policy corrections.,"Their heavy-tail finding for k3 is the same 1/u mechanism as our Fig. 6-7, seen from the KL-only side."
+7,High,KL-Regularized RLHF with Multiple Reference Models: Exact Solutions and Sample Complexity,NeurIPS 2025,arXiv:2502.01203,"@inproceedings{aminian2025multiref,
+  title={{KL}-Regularized {RLHF} with Multiple Reference Models: Exact Solutions and Sample Complexity},
+  author={Aminian, Gholamali and Asadi, Amir R. and Shenfeld, Idan and Mroueh, Youssef},
+  booktitle={Advances in Neural Information Processing Systems (NeurIPS)},
+  year={2025}
+}","Related work para 1, lines 684-686 (after Vieillard et al. 2020 on why KL has strong guarantees).","First exact solution and sample-complexity analysis for reverse-KL RLHF with several reference models, extended to forward KL.",Recent KL-theory anchor; also a clean reverse-vs-forward-KL contrast to cite alongside our forward-KL results.
+8,High,Agentic Reinforcement Learning with Implicit Step Rewards (iStar),ICLR 2026,https://proceedings.iclr.cc/paper_files/paper/2026/file/d1e6739f319be4ba8e748cc05f23bba1-Paper-Conference.pdf,"@inproceedings{liu2026istar,
+  title={Agentic Reinforcement Learning with Implicit Step Rewards},
+  author={Liu, Xiaoqian and Wang, Ke and Wu, Yuchuan and Huang, Fei and Li, Yongbin and Jiao, Jianbin and Zhang, Junge},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}",Sec. 2 lines 171-178 (bandit DPO transplanted to MDP); Related work para 3 lines 700-703 (next to Cho et al. / Kim et al.); Conclusion lines 557-563 (multi-turn direction).,"A multi-turn DPO objective derived from a multi-step MDP (not a bandit) yields step-wise implicit rewards from trajectory preferences, used as an implicit PRM for agentic RL.","Published example of exactly the multi-step implicit-reward setting where our inner term appears; they use reverse KL, so our theorem explains why it works off-policy."
+9,High,Autoregressive Direct Preference Optimization (ADPO),ICML 2026,arXiv:2602.09533,"@inproceedings{oi2026adpo,
+  title={Autoregressive Direct Preference Optimization},
+  author={Oi, Masanari and Ukai, Mahiro and Kaneko, Masahiro and Okazaki, Naoaki and Inoue, Nakamasa},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2026}
+}",Sec. 2 lines 171-178; Related work para 3 lines 697-706.,"Introduces the autoregressive (token-level) assumption before the Bradley-Terry model, separating token length from feedback length, and derives a token-level DPO loss.",Same bandit-vs-token-MDP distinction we draw at lines 171-178; cite as a 2026 published instance. Discussed in Slack
+10,Medium,Is On-Policy Data always the Best Choice for Direct Preference Optimization-based LM Alignment?,ICLR 2026,arXiv:2508.10530,"@inproceedings{sun2026onpolicy,
+  title={Is On-Policy Data always the Best Choice for Direct Preference Optimization-based {LM} Alignment?},
+  author={Sun, Zetian and Li, Dongfang and Chen, Xuhui and Hu, Baotian and Zhang, Min},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}",Intro lines 044-051 (off-policy premise); App. C.5 lines 1227-1230 (on- vs off-policy preference data).,On-policy preference data is not uniformly better; alignment proceeds in stages where diverse off-policy data helps early and high-quality data later.,"Supports the premise that off-policy preference data is used deliberately, not only for compute reasons. "
+11,Medium,Loss Functions and Operators Generated by f-Divergences,ICML 2025,arXiv:2501.18537,"@inproceedings{roulet2025fdivergence,
+  title={Loss Functions and Operators Generated by $f$-Divergences},
+  author={Roulet, Vincent and Liu, Tianlin and Vieillard, Nino and Sander, Michael E. and Blondel, Mathieu},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2025}
+}","Intro lines 039-043; Related work para 2 lines 689-695 (Legendre-Fenchel dual, closed-form soft policy).",f-divergences generate convex losses and 'f-softargmax' operators that generalize the logistic loss and softmax through Fenchel duality.,Cleanest modern reference for the Fenchel-dual soft-policy machinery in Sec. 2 / Lemma 1.
+12,Low,"Is Best-of-N the Best of Them? Coverage, Scaling, and Optimality in Inference-Time Alignment",ICML 2025,arXiv:2503.21878,"@inproceedings{huang2025bestofn,
+  title={Is Best-of-{N} the Best of Them? Coverage, Scaling, and Optimality in Inference-Time Alignment},
+  author={Huang, Audrey and Block, Adam and Liu, Qinghua and Jiang, Nan and Krishnamurthy, Akshay and Foster, Dylan J.},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2025}
+}","Related work para 3 lines 697-706 (optional, with chi^2PO).",Coverage (chi^2-type) governs inference-time alignment; pessimistic rejection sampling avoids the reward hacking that Best-of-N suffers as N grows.,Optional companion to chi^2PO; cite only if you discuss coverage/pessimism.
+13,Medium,SDPO: Segment-Level Direct Preference Optimization for Social Agents,ACL 2025 (Long),https://aclanthology.org/2025.acl-long.607/,"@inproceedings{kong-etal-2025-sdpo,
+  title = ""{SDPO}: Segment-Level Direct Preference Optimization for Social Agents"",
+  author = ""Kong, Aobo and Ma, Wentao and Zhao, Shiwan and Li, Yongbin and Wu, Yuchuan and Wang, Ke and Liu, Xiaoqian and Li, Qicheng and Qin, Yong and Huang, Fei"",
+  booktitle = ""Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)"",
+  month = jul, year = ""2025"", address = ""Vienna, Austria"", publisher = ""Association for Computational Linguistics"",
+  pages = ""12409--12423"", doi = ""10.18653/v1/2025.acl-long.607""
+}",Conclusion lines 557-563 (multi-turn / segment-level future direction); Related work para 3 (optional).,Segment-level DPO that selects key segments inside multi-turn interactions to reduce training noise; outperforms turn-level DPO on SOTOPIA.,Relevant mainly to the sentence/segment-level follow-up; cite when the multi-step direction is mentioned.
+17,Medium,Future-KL Regularized GRPO: Process-Level Credit Assignment from f-Divergence Regularization (FRPO),"arXiv (Jan 2026, rev. May 2026)",arXiv:2601.10201,"@article{yao2026frpo,
+  title={Future-{KL} Regularized {GRPO}: Process-Level Credit Assignment from $f$-Divergence Regularization},
+  author={Yao, Jiarui and Wang, Ruida and Bai, Hao and Zhang, Tong},
+  journal={arXiv preprint arXiv:2601.10201},
+  year={2026}
+}",Related work para 2 lines 689-695 (f-divergence regularization inside an MDP); Intro lines 039-043.,The on-policy gradient of a token-wise f-divergence-regularized objective contains a 'future-KL' return-to-go term that local per-token KL losses omit; adding it improves reasoning RL.,"Their future-regularization term is the on-policy counterpart of our next-state inner term; worth one sentence of contrast (they sample, we cannot)."
+18,Medium,On a few pitfalls in KL divergence gradient estimation for RL,arXiv (June 2025),arXiv:2506.09477,"@article{tang2025pitfalls,
+  title={On a few pitfalls in {KL} divergence gradient estimation for {RL}},
+  author={Tang, Yunhao and Munos, R{\'e}mi},
+  journal={arXiv preprint arXiv:2506.09477},
+  year={2025}
+}",Sec. 3.3 lines 343-352.,"Differentiating through a KL estimate as a loss gives the wrong gradient, and ignoring the sequential structure gives only a partial gradient; shows the correct implementation.","Short, widely read; pairs with Liu et al. (ICLR 2026) and Shah et al."
+19,Medium,A Comedy of Estimators: On KL Regularization in RL Training of LLMs,COLM 2026,arXiv:2512.21852,"@article{shah2025comedy,
+  title={A Comedy of Estimators: On {KL} Regularization in {RL} Training of {LLMs}},
+  author={Shah, Vedant and Obando-Ceron, Johan and Jain, Vineet and Bartoldson, Brian and Kailkhura, Bhavya and Mittal, Sarthak and Berseth, Glen and Castro, Pablo Samuel and Bengio, Yoshua and Whitammer, Esmeralda S. and Jain, Moksh and Venkatraman, Siddarth and Courville, Aaron},
+  journal={arXiv preprint arXiv:2512.21852},
+  year={2025}
+}",Sec. 3.3 lines 343-352; Sec. 4 lines 475-483.,KL-estimator configurations with biased gradients cause training instabilities; unbiased configurations generalize better in- and out-of-domain.,"Empirical backing for 'estimator choice, not divergence choice, is what practitioners actually vary'."
+20,Medium,Provably avoiding over-optimization in Direct Preference Optimization without knowing the data distribution (PEPO),"arXiv (Feb 2026, rev. May 2026)",arXiv:2602.06239,"@article{barla2026pepo,
+  title={Provably avoiding over-optimization in Direct Preference Optimization without knowing the data distribution},
+  author={Barla, Adam and Nevali, Emanuele and Viano, Luca and Cevher, Volkan},
+  journal={arXiv preprint arXiv:2602.06239},
+  year={2026}
+}",Related work para 3 lines 697-706 (with chi^2PO).,Pessimism via an ensemble of DPO policies on disjoint data subsets; single-policy concentrability without knowing the data distribution or fitting a reward model.,Shows the 2026 pessimism line stays bandit-level; supports the 'collision' framing for the multi-step follow-up.
+21,Medium,Direct Preference Optimization with Rating Information: Practical Algorithms and Provable Gains (RDPO),arXiv (Jan 2026),arXiv:2602.00603,"@article{viano2026rdpo,
+  title={Direct Preference Optimization with Rating Information: Practical Algorithms and Provable Gains},
+  author={Viano, Luca and Zhou, Ruida and Sun, Yifan and Namazifar, Mahdi and Cevher, Volkan and Sabach, Shoham and Ghavamzadeh, Mohammad},
+  journal={arXiv preprint arXiv:2602.00603},
+  year={2026}
+}",Related work para 3 lines 697-706 (optional).,Uses rating-gap information plus chi^2 regularization for faster statistical rates and single-policy concentrability.,Optional; but from well-known authors
+24,High,TokenRatio: Principled Token-Level Preference Optimization via Ratio Matching (TBPO),ICML 2026,arXiv:2605.12288,"@article{nguyen2026tokenratio,
+  title={{TokenRatio}: Principled Token-Level Preference Optimization via Ratio Matching},
+  author={Nguyen, Truong and Nguyen, Tien-Phat and Van, Linh Ngo and Nguyen, Duy Minh Ho and Doan, Khoa and Le, Trung},
+  journal={arXiv preprint arXiv:2605.12288},
+  year={2026}
+}",Intro lines 039-043 (Bregman); Related work para 2 lines 689-695.,Token-level Bregman density-ratio matching that generalizes the logistic/DPO loss while keeping training simple.,Bregman-at-token-level instance; cite only if the Bregman line is expanded.
+25,Medium,Policy Mirror Descent for Regularized Reinforcement Learning: A Generalized Framework with Linear Convergence (GPMD),"SIAM J. Optimization 2026 
+???",arXiv:2105.11066,"@article{zhan2026gpmd,
+  title={Policy Mirror Descent for Regularized Reinforcement Learning: A Generalized Framework with Linear Convergence},
+  author={Zhan, Wenhao and Cen, Shicong and Huang, Baihe and Chen, Yuxin and Lee, Jason D. and Chi, Yuejie},
+  journal={SIAM Journal on Optimization},
+  year={2026},
+  note={doi:10.1137/21M1456789; verify volume/pages}
+}",Related work para 2 lines 689-695 (after Tomar et al. 2022 mirror-descent policy optimization).,"Generalized policy mirror descent that picks the Bregman divergence to match the convex regularizer, with linear convergence for general regularizers.",

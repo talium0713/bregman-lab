@@ -1,0 +1,13 @@
+{
+  "a": "chi2_canon_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 996,
+  "nulls": 4,
+  "wins": 543,
+  "ties": 71,
+  "losses": 382,
+  "win_rate": 58.1,
+  "ci_lo": 54.0,
+  "ci_hi": 61.5
+}

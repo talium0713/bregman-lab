@@ -1,0 +1,13 @@
+{
+  "a": "hel_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 996,
+  "nulls": 4,
+  "wins": 465,
+  "ties": 78,
+  "losses": 453,
+  "win_rate": 50.6,
+  "ci_lo": 47.0,
+  "ci_hi": 54.1
+}

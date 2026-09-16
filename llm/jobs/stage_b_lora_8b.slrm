@@ -1,0 +1,68 @@
+#!/bin/bash
+# Qwen3-8B-Base DPO with LoRA on a SINGLE H100 — RKL, canonical vs Amari (array 0=amari, 1=canon).
+#
+# WHY LoRA: the 8B full-FT sweep (jobs/stage_b_scale_8b.slrm) needs 4× H100, and not because of the
+# policy. Per rank it held 16G params + 16G optimiser + a REPLICATED 16G frozen reference; only the
+# first two shard under FSDP, so the reference sets the floor. Under LoRA the reference disappears
+# entirely: disabling the adapter restores the base weights, which ARE pi_ref. TRL does the same thing
+# ("the reference model is not needed since the adapter can be disabled to revert to the initial
+# model", trl/trainer/dpo_trainer.py). One 80G H100 then holds 16G base + ~0.7G adapter + ~1.4G
+# optimiser + the fp32 [T,V] logit graph. 48G L40S also fits: swap the --gres line.
+#
+# HYPERPARAMETERS follow the alignment-handbook Zephyr-7b-beta DPO QLoRA recipe
+# (recipes/zephyr-7b-beta/dpo/config_qlora.yaml): lora_r 128, lora_alpha 128, lora_dropout 0.05,
+# adapters on all seven linear projections [q,k,v,o,gate,up,down]_proj, max_length 1024, lr 5.0e-6.
+# It is the closest PUBLISHED DPO-LoRA configuration to ours — same dataset (UltraFeedback binarized),
+# same bf16 + flash-attention-2 backend. Targeting every linear layer rather than q/v only is the
+# QLoRA recommendation (Dettmers et al. 2023). alpha/r = 1 means the adapter is applied at unit scale,
+# so lr 5e-6 behaves like the full-FT lr along the adapted directions; we keep 5e-6 to stay identical
+# to the full-FT 8B runs. (TRL's docs suggest ~1e-5 for adapters — the knob to revisit if BOTH arms
+# underfit, which would show up as a flat loss curve in the .json.)
+#
+# DIFFERENCE FROM THE FULL-FT 8B RUNS: 1 epoch, not 2. One H100 runs ~2x slower per step than the
+# 2-GPU baseline (23s/step), so 2 epochs would overrun the <=12h walltime tier, which on Killarney
+# reaches 20 H100 nodes instead of the 6 a >24h request sees — and the policy is only written after
+# the final step, so an overrun loses the run. Both arms get the identical budget, so the
+# canonical-vs-Amari contrast is clean; absolute win rates are NOT comparable to the full-FT 8B table.
+#
+# Submit FROM llm/:  sbatch jobs/stage_b_lora_8b.slrm
+# Out: /scratch/$USER/bregman-lab/llm/results/bench/stageB_lora8b_kl_{amari,canon}_bdpo_token_policy
+# Then: jobs/gen_lora8b.slrm -> run_arena_v01_judge.sh
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=lora8b
+#SBATCH --gres=gpu:h100:1
+#SBATCH --array=0-1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=11:30:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"   # checkpoints -> /scratch (/project quota)
+
+NORMS=(amari canon)
+NORM="${NORMS[$SLURM_ARRAY_TASK_ID]}"
+DIV=kl                                   # code key kl == reverse KL (SHORT maps kl->RKL, rkl->FKL)
+
+echo "=== 8B LoRA [$DIV, norm=$NORM] 1xH100 (1ep) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --lora-r 128 --lora-alpha 128 --lora-dropout 0.05 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 1 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed 0 --save-policy \
+  --out "$OUT_DIR/stageB_lora8b_${DIV}_${NORM}_bdpo_token"
+echo "=== done 8B LoRA [$DIV, norm=$NORM] | $(date) ==="

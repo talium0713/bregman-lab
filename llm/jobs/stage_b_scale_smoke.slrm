@@ -1,0 +1,35 @@
+#!/bin/bash
+# Scale-ablation SMOKE 1 — Qwen3-4B-Base, single H100, the UNCHANGED single-GPU path (no FSDP): confirms
+# the 4B policy loads, trains, evals, and fits 80 GB with the existing recipe, and measures throughput +
+# peak memory so we can size the 8B/14B FSDP runs. Short (20 steps), no save.
+# Submit FROM llm/:  sbatch jobs/stage_b_scale_smoke.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sbsmoke4b
+#SBATCH --gres=gpu:h100:1
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=200G
+#SBATCH --time=1:00:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+echo "=== 4B single-H100 smoke (RKL canonical, 20 steps) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-4B-Base --policy Qwen/Qwen3-4B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div kl --norm canon --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --steps 20 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 64 --log-every 5 --eval-every 10 --seed 0 \
+  --out results/bench/smoke_scale4b_rkl_canon
+echo "=== smoke done | $(date) ==="

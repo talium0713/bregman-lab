@@ -1,0 +1,13 @@
+{
+  "a": "js_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 993,
+  "nulls": 7,
+  "wins": 505,
+  "ties": 49,
+  "losses": 439,
+  "win_rate": 53.3,
+  "ci_lo": 49.7,
+  "ci_hi": 56.8
+}

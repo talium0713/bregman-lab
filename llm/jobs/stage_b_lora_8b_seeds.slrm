@@ -1,0 +1,66 @@
+#!/bin/bash
+# 8B LoRA seed replication — seeds 1 and 2 for {amari, canon}, taking the 8B LoRA cell from n=1 to n=3.
+#
+# WHY. jobs/stage_b_lora_8b_l40s.slrm produced seed 0 only. Every amari-vs-canonical number in the
+# scaling table is a single run, and the 4B cell already shows why that is not enough: amari wins
+# 47.0% there with a 95% CI of [43.3, 50.6], i.e. the canonical advantage at 4B is not distinguishable
+# from seed noise. 8B looks decisive at seed 0 (amari 25.8%, CI [22.5, 29.0]) but "decisive" from n=1
+# is a claim about one draw. Three seeds per arm turns the 8B point into an interval.
+#
+# The recipe is byte-identical to jobs/stage_b_lora_8b_l40s.slrm apart from --seed and --out. Confirm
+# before submitting:
+#   diff <(grep -A12 '^python stage_b_train.py' jobs/stage_b_lora_8b_l40s.slrm) \
+#        <(grep -A12 '^python stage_b_train.py' jobs/stage_b_lora_8b_seeds.slrm)
+# should show only the --seed and --out lines. --seed reaches three places in stage_b_train.py: the
+# global torch seed, the one-time init-noise perturbation on lora_B (seed+1), and the data shuffle
+# permutation — so these are genuine independent replicates, not just a different init.
+#
+# BUDGET. Measured on the seed-0 run (job 5452597): 77.7 s/step steady state, not the 90 s the seed-0
+# script budgeted, and 28.21 GB peak, flat. 1,910 steps => ~41 h + eval/load/merge. --time 68:00:00 is
+# kept unchanged: it still sits in the 3-day L40S tier (42 nodes / 168 GPUs) and covers up to 128 s/step.
+# All four run concurrently — no %N throttle, the L40S pool has the room.
+#
+# STORAGE. 4 x 16 GB merged policy + 4 x 1.4 GB adapter ~= 70 GB, to /scratch. NEVER /project.
+#
+# Submit FROM llm/:  sbatch jobs/stage_b_lora_8b_seeds.slrm
+# Out: $OUT_DIR/stageB_lora8b_kl_{amari,canon}_bdpo_token_s{1,2}  (+ .json curve, + _adapter, + _policy)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=lora8bS
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-3
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=68:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="${HF_HOME:-/scratch/$USER/hf_cache}"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+# NEVER /project: it runs at ~63% of a 5 TiB group quota and one saved 8B policy is 16 GB.
+OUT_DIR="${OUT_DIR:-/scratch/$USER/bregman-lab/llm/results/bench}"; mkdir -p "$OUT_DIR"
+
+NORMS=(amari canon)
+NORM="${NORMS[$((SLURM_ARRAY_TASK_ID % 2))]}"
+SEED=$((1 + SLURM_ARRAY_TASK_ID / 2))
+DIV=kl                                   # code key kl == reverse KL (SHORT maps kl->RKL, rkl->FKL)
+
+echo "=== 8B LoRA [$DIV, norm=$NORM, seed=$SEED] 1xL40S (2ep) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --lora-r 128 --lora-alpha 128 --lora-dropout 0.05 --save-adapter-every 100 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed "$SEED" --save-policy \
+  --out "$OUT_DIR/stageB_lora8b_${DIV}_${NORM}_bdpo_token_s${SEED}"
+echo "=== done 8B LoRA [$DIV, norm=$NORM, seed=$SEED] | $(date) ==="

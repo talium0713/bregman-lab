@@ -1,0 +1,49 @@
+#!/bin/bash
+# Arena-Hard v0.1 generation for the cross-family policies (Llama-3.2-1B / Gemma-3-1b-pt, RKL,
+# Amari vs canonical). Generation flags are byte-identical to gen_scale4b.slrm so these answers are
+# judgeable against the same baseline as every Qwen3 scale.
+#
+# WHY THIS RUN MATTERS. The previous cross-family attempt was invalidated: these are base checkpoints
+# with no chat template, the trainer installed a fallback, and that fallback did not terminate the
+# assistant turn with EOS. 41% of the Llama answers then ran to the 1024-token cap re-emitting turn
+# markers (205/500 Amari, 211/500 canonical, against 0/500 for Qwen3), so the whole 500-prompt result
+# was thrown away. The template now ends the turn with eos_token and the policy directories carry it,
+# since stage_b_train.py saves the tokenizer alongside the model. The first thing to check in these
+# outputs is therefore the at-cap rate, not the win rate.
+#
+#   array index = 0 llama:amari  1 llama:canon  2 gemma:amari  3 gemma:canon   (same order as stage_b_family.slrm)
+# Output: results/bench/arena_v01/{llama1b,gemma1b}_kl_{amari,canon}_bdpo.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=gfam
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-3
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+TAGS=(llama1b llama1b gemma1b gemma1b)
+NORMS=(amari canon amari canon)
+FAM="${TAGS[$SLURM_ARRAY_TASK_ID]}"; NORM="${NORMS[$SLURM_ARRAY_TASK_ID]}"; DIV=kl
+POL="/scratch/$USER/bregman-lab/llm/results/bench/stageB_${FAM}_${DIV}_${NORM}_bdpo_token_policy"
+TAG="${FAM}_${DIV}_${NORM}_bdpo"
+[ -d "$POL" ] || { echo "policy $POL missing — train it first"; exit 1; }
+
+echo "=== gen Arena-Hard v0.1 [$TAG] from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="

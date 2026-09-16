@@ -45,53 +45,68 @@ def _plot(ax, a_grid, d, color, label, ls="-"):
     return mu, ci
 
 
-def main():
-    kln_p = sys.argv[1] if len(sys.argv) > 1 else KLN
-    std_p = sys.argv[2] if len(sys.argv) > 2 else STD
-    for p in (kln_p, std_p):
-        if not os.path.exists(p):
-            sys.exit(f"missing {p} — run: python run_adiv.py --peak-ref 0.8"
-                     + ("" if "std" not in p else " --no-kl-norm"))
+def render(kln_p, std_p, paper=False):
+    """One peak's before/after α-div normalization figure (C2). paper=True → text-width profile (B12)."""
     man, a_grid, kln = agg(kln_p)
     _, _, std = agg(std_p)
     os.makedirs("figs", exist_ok=True)
+    peak = man["peak_ref"]
+    # drop the dense near-1 probe points (added only to resolve the old knife-edge); keep α=1 itself
+    a_plot = [a for a in a_grid if not (0.9 < a < 1.1 and abs(a - 1.0) > 1e-9)]
 
+    if paper:
+        plt.rcParams.update({"font.size": 9})
     C_STD, C_KLN = "#d9534f", "#2c7fb8"
-    fig, ax = plt.subplots(figsize=(7.8, 4.6))
-    _plot(ax, a_grid, std, C_STD, "standard  f'(1)=0  (Φ→1−1/u: artifact)", ls="--")
-    _plot(ax, a_grid, kln, C_KLN, "KL-consistent  f'(1)=1  (Φ→1: fixed)")
-    ax.scatter([1.0], [kln[1.0][0]], s=150, facecolors="none", edgecolors=COLORS["kl"],
-               linewidths=2.0, zorder=6, label="a=1: canonical KL (shared)")
-    ax.axvline(1.0, color=COLORS["kl"], ls=":", lw=1.0, alpha=0.6)
-    ax.set_xlabel("α-divergence parameter  a   (a→0 FKL · a=1 RKL · a=2 χ²)")
-    ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")
-    ax.set_ylim(0, max(max(v[0] + v[1] for v in std.values()),
-                       max(v[0] + v[1] for v in kln.values())) * 1.12)
+    fig, ax = plt.subplots(figsize=(5.5, 3.7) if paper else (7.8, 4.6))
+    _plot(ax, a_plot, std, C_STD, r"standard form ($f'(1)=0$)", ls="--")
+    _plot(ax, a_plot, kln, C_KLN, r"canonical form ($f'(1)=f''(1)$)")
+    # α=1 = RKL on BOTH forms (same divergence, different generator): they do NOT meet. The performance
+    # difference is set purely by the generator's regularity (standard f=u ln u−(u−1) vs canonical f=u ln u).
+    su, cu = std[1.0][0], kln[1.0][0]
+    C_KL = COLORS["kl"]
+    ax.scatter([1.0, 1.0], [su, cu], s=150, facecolors="none", edgecolors=C_KL, linewidths=2.0, zorder=6)
+    ax.annotate("", xy=(1.0, cu + 0.012), xytext=(1.0, su - 0.012),
+                arrowprops=dict(arrowstyle="<->", color=C_KL, lw=1.7), zorder=6)
+    ax.text(0.93, 0.5 * (su + cu), "regularity\ngap", fontsize=8.5, color=C_KL,
+            va="center", ha="right", fontweight="bold", zorder=7)
+    ax.text(1.06, su + 0.035, r"$f(u)=u\ln u-(u-1)$", fontsize=8.5, color=C_KL, va="bottom", ha="left", zorder=7)
+    ax.text(1.06, cu - 0.035, r"$f(u)=u\ln u$", fontsize=8.5, color=C_KL, va="top", ha="left", zorder=7)
+    ax.axvline(1.0, color=C_KL, ls=":", lw=1.0, alpha=0.6)
+    ax.set_title(r"divergence-family parameter  $\alpha$"
+                 "\n"
+                 r"($\alpha\!\to\!0$: FKL   $\alpha\!=\!1$: RKL   $\alpha\!=\!2$: $\chi^2$)",
+                 fontsize="medium")
+    ax.set_ylabel(r"recovery gap $\Delta_\pi$ = mean TV$(\pi_\theta \,\|\, \pi^\star)$")
+    ax.set_ylim(0, 0.55)
     ax.grid(alpha=0.2)
 
-    # zoom inset around a=1
-    m = [a for a in a_grid if 0.84 <= a <= 1.16]
-    if len(m) > 2:
-        axin = ax.inset_axes([0.6, 0.40, 0.36, 0.42])
-        for d, c, ls in [(std, C_STD, "--"), (kln, C_KLN, "-")]:
-            mu = np.array([d[a][0] for a in m]); ci = np.array([d[a][1] for a in m])
-            axin.plot(m, mu, ls, color=c, lw=1.4, marker="o", ms=3.5)
-            axin.fill_between(m, mu - ci, mu + ci, color=c, alpha=0.13)
-        axin.scatter([1.0], [kln[1.0][0]], s=60, facecolors="none", edgecolors=COLORS["kl"], linewidths=1.5)
-        axin.set_xlim(0.84, 1.16); axin.set_title("zoom: a≈1", fontsize=8)
-        axin.tick_params(labelsize=6.5); axin.grid(alpha=0.2)
-        ax.indicate_inset_zoom(axin, edgecolor="#bbb")
-
-    ax.set_title(f"α-div sweep — generator-normalization fix (off-policy, α=RKL@peak{man['peak_ref']}, "
-                 f"{man['n_mdp']} MDPs, ±95% CI)\nsame Ω/π*; only the inner-term estimator differs",
-                 fontsize=10)
+    # B1: no in-figure title. Caption items → α-div generator-normalization fix; off-policy; temperature
+    # β = RKL@peak{peak}; {man['n_mdp']} MDPs; ±95% CI; same Ω/π*, only the inner-term estimator differs;
+    # the standard curve's α→1 jump (Ψ→1−1/u) is the artifact, the canonical well is the fix.
     ax.legend(fontsize=8, loc="lower left")
     fig.tight_layout()
-    p = "figs/adiv_compare_p80.png"; fig.savefig(p, dpi=140); plt.close()
-    print(f"[saved] {p}")
-    print(f"  a=1 (shared): Δπ={kln[1.0][0]:.3f}")
-    print(f"  a=0.5: std={std[0.5][0]:.3f}  kln={kln[0.5][0]:.3f}")
-    print(f"  a=2.0: std={std[2.0][0]:.3f}  kln={kln[2.0][0]:.3f}")
+    stem = f"figs/adiv_compare_p{int(round(peak*100))}{'_paper' if paper else ''}"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    if paper:
+        plt.rcParams.update(plt.rcParamsDefault)
+    print(f"[saved] {stem}.png/.pdf  ·  α=1 Δπ={kln[1.0][0]:.3f} · "
+          f"α=0.5 std={std[0.5][0]:.3f}/canon={kln[0.5][0]:.3f}")
+    return stem
+
+
+def main():
+    if len(sys.argv) > 2:                       # explicit  kln_results.json  std_results.json
+        render(sys.argv[1], sys.argv[2]); return
+    for pk in (60, 70, 80):                     # C2⑤: p60 · p70 · p80
+        kln_p, std_p = f"data/tabular/run_adiv_p{pk}_kln/results.json", f"data/tabular/run_adiv_p{pk}/results.json"
+        if os.path.exists(kln_p) and os.path.exists(std_p):
+            render(kln_p, std_p)
+        else:
+            print(f"[skip] peak 0.{pk}: missing {kln_p} or {std_p}")
+    if os.path.exists(KLN) and os.path.exists(STD):   # p80 also as a text-width paper profile (B12)
+        render(KLN, STD, paper=True)
 
 
 if __name__ == "__main__":

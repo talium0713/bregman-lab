@@ -1,0 +1,11 @@
+{
+  "paper_name": "f03_adiv_normalization_paper",
+  "source_figure": "python/figs/adiv_compare_p80_paper",
+  "source_data": "fig_adiv_compare.py --paper profile (text-width)",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1c4a136795c7581231ea8e6042318d531aba17e7",
+  "exported_at": "2026-09-13T02:11:39+00:00"
+}

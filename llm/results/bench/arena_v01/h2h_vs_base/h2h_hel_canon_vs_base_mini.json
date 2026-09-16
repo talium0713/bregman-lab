@@ -1,0 +1,13 @@
+{
+  "a": "hel_canon_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 995,
+  "nulls": 5,
+  "wins": 559,
+  "ties": 44,
+  "losses": 392,
+  "win_rate": 58.4,
+  "ci_lo": 54.5,
+  "ci_hi": 61.8
+}

@@ -1,0 +1,46 @@
+#!/bin/bash
+# Arena-Hard v0.1 generation for the UNTRAINED cross-family base models — the "before" reference the
+# Llama/Gemma policies are compared against, mirroring scale4b_base / scale8b_base for Qwen3.
+#
+# Needed for two reasons. It is the reference column of the cross-family table, and it unblocks an
+# eval before both trained arms exist: amari-vs-base can be judged as soon as one arm has generated,
+# instead of waiting for its opposite arm to finish training on the contended h100 queue.
+#
+# It is also the control for the EOS question. These are base checkpoints with no chat template; the
+# trainer installs a fallback and the trained policies carry it, but the UNTRAINED model here is
+# generated with whatever the stock tokenizer provides. Comparing at-cap rates between this and the
+# trained arms separates "the family truncates" from "training broke termination".
+#
+#   array index = 0 llama-3.2-1b, 1 gemma-3-1b-pt
+# Output: results/bench/arena_v01/{llama1b,gemma1b}_base.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=gfambase
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+MODELS=(meta-llama/Llama-3.2-1B google/gemma-3-1b-pt)
+TAGS=(llama1b_base gemma1b_base)
+M="${MODELS[$SLURM_ARRAY_TASK_ID]}"; TAG="${TAGS[$SLURM_ARRAY_TASK_ID]}"
+
+echo "=== gen Arena-Hard v0.1 [$TAG] from $M on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$M" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="

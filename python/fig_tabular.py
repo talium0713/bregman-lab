@@ -27,7 +27,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT
+from regularizers import (REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT,
+                          REGIME_LABEL, REGIME_SUB, REGIME_ORDER)
 from mdp import new_rewards
 from experiments import peakiness, calibrate
 from seeds import rng_for
@@ -79,48 +80,121 @@ def _design_str(man):
     return f"{nm} independent MDPs" if ns == 1 else f"{nm} fixed MDP × {ns} training seeds"
 
 
+def load_canon(peak):
+    """All three arms of the paired 2x7 run at this peak, or None if it has not been run.
+
+    run_canon_final.py writes data/tabular/canon_2x7_p{peak*10}.json with gap.exact / gap.std (Amari)
+    / gap.canon, every arm trained from the SAME seed and the SAME off-policy dataset on each MDP.
+    The bar panel takes all three from here rather than mixing in fig_tabular's own "off" series:
+    one paired source keeps the three bars comparable within a divergence. Stored values are
+    (mean, std) across MDPs, so the interval is 1.96*std/sqrt(n_mdp).
+
+    `canon` has no euc (not an f-divergence). `std` has every key, including kl -- that entry is the
+    Amari-normalized RKL, which is the only place it exists: fig_tabular's own "off" bars use the
+    natural generator, and for RKL the natural generator IS the canonical one.
+    """
+    hit = glob.glob(f"data/tabular/canon_2x7_p{int(round(peak * 10))}.json")
+    if not hit:
+        return None
+    d = json.load(open(hit[0]))
+    n = max(1, int(d.get("n_mdp", 1)))
+    def ci(v):
+        m, sd = (list(v) + [0.0])[:2]
+        return float(m), 1.96 * float(sd) / np.sqrt(n)
+    g = d["gap"]
+    return {arm: {rk: ci(v) for rk, v in g.get(arm, {}).items()}
+            for arm in ("exact", "std", "canon")}
+
+
 def fig_headline(man, agg_p, peak, nmc):
-    """One peak's 3-panel headline: off (bars), off_on & on (Δπ vs n_mc, ±95%CI)."""
+    """One peak's headline: the on-policy and resampled Δπ-vs-n_mc panels (±95% CI), then a grouped
+    exact-vs-off-policy bar panel on the RIGHT (per divergence, exact transparent+hatched directly beside
+    off-policy solid). Divergence-colour legend lives on the on-policy panel."""
+    from matplotlib.patches import Patch
+    from matplotlib.colors import to_rgba
     COLORS, SHORT = _COLORS, _SHORT   # canonical palette (colours are cosmetic; don't freeze the manifest's)
-    regimes = [r for r in ("off", "off_on", "on") if r in agg_p]
-    titles = {"off": "off-policy (single logged a′ · n_mc irrelevant)",
-              "off_on": "off-on-policy / Dyna (fresh n_mc resample)",
-              "on": "on-policy (lagged sampler)"}
-    fig, axes = plt.subplots(1, len(regimes), figsize=(5.2 * len(regimes), 4.4))
+    LEG_FS = 9.5
+    line_regimes = [r for r in ("on", "off_on") if r in agg_p]      # on-policy, then resampled
+    have_grouped = "exact" in agg_p and "off" in agg_p
+    npanel = len(line_regimes) + (1 if have_grouped else 0)
+    # The bar panel carries 7 groups x 3 bars and needs the room; the two line panels are readable
+    # at half the width. Give the line panels a quarter of the figure each and the bars the other
+    # half, so the divergence groups separate instead of touching.
+    ratios = [1] * len(line_regimes) + ([len(line_regimes)] if have_grouped else [])
+    fig, axes = plt.subplots(1, npanel, figsize=(5.2 * npanel, 4.4),
+                             gridspec_kw={"width_ratios": ratios})
     axes = np.atleast_1d(axes)
     ymax = 0
-    for ax, reg in zip(axes, regimes):
-        if reg == "off":
-            x = np.arange(len(REGKEYS))
-            for i, rk in enumerate(REGKEYS):
-                c, ci, perm = agg_p[reg][rk][1]
-                ax.bar(x[i], c, 0.74, yerr=ci, capsize=3, color=COLORS[rk],
-                       edgecolor="#111" if rk == "kl" else "none",
-                       linewidth=2.0 if rk == "kl" else 0, zorder=3)
-                if len(perm) <= 10:
-                    ax.plot([x[i]] * len(perm), perm, "o", ms=3, color="#222", alpha=0.5, zorder=5)
-                ymax = max(ymax, c + ci)
-            ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS], fontsize=8)
-            ax.set_ylabel("policy gap  Δπ  (mean TV vs π*)")
-        else:
-            for rk in REGKEYS:
-                cs = np.array([agg_p[reg][rk][n][0] for n in nmc])
-                ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
-                ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
-                ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
-                ymax = max(ymax, (cs + ci).max())
-            ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
-            ax.set_xlabel("Monte-Carlo budget  n_mc")
-        ax.set_title(titles[reg], fontsize=10); ax.grid(alpha=0.2)
+    ai = 0
+    x = np.arange(len(REGKEYS))
+    for reg in line_regimes:                             # Δπ vs MC budget, ±95% CI (leftmost panels)
+        ax = axes[ai]
+        for rk in REGKEYS:
+            cs = np.array([agg_p[reg][rk][n][0] for n in nmc])
+            ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
+            ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+            ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
+            ymax = max(ymax, (cs + ci).max())
+        ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
+        ax.set_xlabel("MC budget  $n$")
+        ax.set_title(f"{REGIME_LABEL[reg]}  ({REGIME_SUB[reg]})", fontsize=10); ax.grid(alpha=0.2)
+        if ai == 0:
+            ax.set_ylabel(r"policy gap  $\Delta_\pi$ = mean of $\mathrm{TV}(\pi_\theta \,\|\, \pi^\star)$")
+        if reg == "on":                                  # divergence-colour legend lives on on-policy
+            ax.legend(fontsize=LEG_FS, ncol=2, loc="upper right")
+        ai += 1
+    if have_grouped:                                     # exact | off Amari | off canonical, RIGHT
+        # Three bars per divergence, always in this order so the columns read across:
+        #   slot 0  exact      closed-form inner term over all a'          hatched ///, faint
+        #   slot 1  Amari      single logged a', f'(1)=0                   solid, translucent
+        #   slot 2  canonical  single logged a', f'(1)=f''(1)              hatched \\, opaque
+        # All three come from the paired 2x7 run (same seed and data per MDP per arm). euc is the one
+        # gap: it is not an f-divergence, so it has no canonical representative and slot 2 stays empty.
+        ax = axes[ai]
+        arms = load_canon(peak)
+        w = 0.78 / 3                                  # <0.92: leaves a visible gap between groups
+        slot = (-w, 0.0, w)
+        for i, rk in enumerate(REGKEYS):
+            kl = rk == "kl"
+            ec = "#111" if kl else COLORS[rk]
+            lw = 1.3 if kl else 0.8
+            if arms is None:                             # fall back to the old two-bar panel
+                ce, cie, _ = agg_p["exact"][rk][1]
+                co, cio, _ = agg_p["off"][rk][1]
+                ax.bar(x[i] - w / 2, ce, w, yerr=cie, capsize=2, facecolor=to_rgba(COLORS[rk], 0.28),
+                       hatch="///", edgecolor=ec, linewidth=lw, zorder=3)
+                ax.bar(x[i] + w / 2, co, w, yerr=cio, capsize=2, color=COLORS[rk], zorder=3)
+                ymax = max(ymax, ce + cie, co + cio)
+                continue
+            for j, (arm, face, hatch) in enumerate((("exact", 0.28, "///"),
+                                                    ("std",   0.45, None),
+                                                    ("canon", 0.85, "\\\\"))):
+                v = arms[arm].get(rk)
+                if v is None:                            # euc has no canonical representative
+                    continue
+                m, c = v
+                ax.bar(x[i] + slot[j], m, w, yerr=c, capsize=2,
+                       facecolor=to_rgba(COLORS[rk], face), hatch=hatch,
+                       edgecolor=ec, linewidth=lw, zorder=3)
+                ymax = max(ymax, m + c)
+        ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS], fontsize=8)
+        ax.set_title("exact vs off-policy", fontsize=10); ax.grid(alpha=0.2, axis="y")
+        ax.legend(handles=[
+            Patch(facecolor=to_rgba("#888", 0.28), hatch="///", edgecolor="#555",
+                  label=r"exact (closed form, all $a'$)"),
+            Patch(facecolor=to_rgba("#888", 0.45), edgecolor="#555",
+                  label=r"off-policy, Amari $f'(1)=0$"),
+            Patch(facecolor=to_rgba("#888", 0.85), hatch="\\\\", edgecolor="#555",
+                  label=r"off-policy, canonical $f'(1)=f''(1)$")],
+            fontsize=LEG_FS, loc="upper left")
     for ax in axes:
-        ax.set_ylim(0, ymax * 1.08)
-    axes[-1].legend(fontsize=8, ncol=2, title="Ω (RKL = admissible)")
-    fig.suptitle(f"Tabular §4.3 (peak {peak}) — only the admissible Ω (RKL) recovers π* at low/zero "
-                 f"MC budget · {_design_str(man)}, ±95% CI", fontsize=11, y=1.0)
+        ax.set_ylim(0, ymax * 1.28)                      # extra headroom so legends clear the bars/lines
     fig.tight_layout()
-    p = f"figs/tabular_headline_p{int(round(peak*100))}.png"
-    fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
-    return p
+    stem = f"figs/tabular_headline_p{int(round(peak*100))}"
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close()
+    return f"{stem}.png"
 
 
 def fig_offpolicy_peaks(man, agg, peaks):
@@ -136,9 +210,7 @@ def fig_offpolicy_peaks(man, agg, peaks):
                    edgecolor="#111" if rk == "kl" else "none", linewidth=1.2 if rk == "kl" else 0,
                    label=f"peak {peak}" if i == 0 else None)
     ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS])
-    ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")
-    ax.set_title(f"Off-policy recovery across calibration peaks — RKL lowest at every peak · "
-                 f"{_design_str(man)} · ±95% CI", fontsize=10)
+    ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")   # caption: {design} · ±95% CI · RKL lowest at every peak
     ax.grid(alpha=0.2, axis="y"); ax.legend(fontsize=8, title="bar shade = peak")
     fig.tight_layout()
     p = "figs/tabular_offpolicy_peaks.png"
@@ -164,9 +236,8 @@ def fig_alpha_sweep(man, peaks):
         for rk in REGKEYS:
             ax.scatter([al[rk]], [peak], color=COLORS[rk], s=26, zorder=9 if rk == "kl" else 4)
         ax.text(grid[-1], peak, f" peak {peak}", va="center", fontsize=8, color="#555")
-    ax.set_xscale("log"); ax.set_xlabel("regularization weight α")
-    ax.set_ylabel("peak   mean_s max_a π*(a|s)")
-    ax.set_title("α–peak sweep (MDP 0, deterministic) — per-Ω α calibrated to each target peak", fontsize=10)
+    ax.set_xscale("log"); ax.set_xlabel(r"regularization temperature $\beta$")   # temperature (C0: β, not the family α)
+    ax.set_ylabel("peak   mean_s max_a π*(a|s)")   # caption: MDP 0, deterministic; per-Ω β calibrated to each target peak
     ax.legend(fontsize=8, ncol=2); ax.grid(alpha=0.2)
     fig.tight_layout()
     p = "figs/tabular_alpha_sweep.png"
@@ -184,10 +255,10 @@ def table_calibration(man, results, peaks):
             by.setdefault(r["rk"], {})[r["peak"]] = r["alpha"]
             meta[r["rk"]] = (r["C_exact"], r["admissible"])
     pcols = ",".join(f"alpha@{p}" for p in peaks)
-    csv = ["Omega," + pcols + ",C_exact,admissible"]
+    csv = ["Omega," + pcols + ",C_exact,permissible"]
     tex = [r"\begin{tabular}{l" + "r" * len(peaks) + "rc}", r"\toprule",
-           "$\\Omega$ & " + " & ".join(f"$\\alpha_{{{p}}}$" for p in peaks)
-           + r" & $C_\Omega(\pi^*)$ & admissible \\", r"\midrule"]
+           "$\\Omega$ & " + " & ".join(f"$\\beta_{{{p}}}$" for p in peaks)
+           + r" & $C_\Omega(\pi^*)$ & permissible \\", r"\midrule"]
     for rk in REGKEYS:
         ce, adm = meta[rk]
         als = [by[rk].get(p, float("nan")) for p in peaks]

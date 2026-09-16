@@ -1,0 +1,75 @@
+#!/bin/bash
+# max-new 2048 re-generation for 1.7B and 4B — the same truncation diagnostic already run at 8B.
+#
+# WHAT 8B SHOWED. Doubling the cap left base and canonical medians EXACTLY unchanged (497 and 671)
+# while the Amari median went 1024 -> 2048, i.e. it fills whatever room it is given. Only 9% of the
+# answers truncated at 1024 resolved by 2048 (80.0% -> 72.8% at cap). So 8B Amari has lost the
+# ability to terminate; it is not merely verbose.
+#
+# WHAT THIS TESTS. Whether that signature — median tracking the cap — is unique to 8B Amari, or a
+# weak version of it exists at smaller scale. It matters because the 1024 at-cap rates point the
+# OTHER way below 8B: at 4B it is CANONICAL that truncates 2-4x more often than Amari on every one
+# of the five divergences (e.g. js 28.8% vs 7.4%), and canonical also loops 4x more (111 vs 28 over
+# all five). If 4B canonical's median also tracks the cap, that is the same pathology in the other
+# arm and the story is about scale, not about which normalisation. If its median holds still, then
+# 4B canonical is merely verbose and only 8B Amari is actually broken.
+#
+# COVERAGE. 4B gets all five divergences x both norms plus base, since that is where the anomaly is.
+# 1.7B gets the RKL pair (the direct 8B parallel) plus chi2-Amari, which at 19.6% is the single
+# outlier cell at 1.7B where everything else sits at 8-13%.
+#
+# Flags are byte-identical to gen_scale4b.slrm apart from --max-new; outputs use _mn2048 tags and do
+# NOT overwrite the 1024 sets that every judged result is based on.
+#
+# Submit FROM llm/:  sbatch jobs/gen_mn2048_17b_4b.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=mn2048
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-13
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+S="/scratch/$USER/bregman-lab/llm/results/bench"     # most policies live here
+P="$REPO/llm/results/bench"                          # a few 1.7B canon/amari arms live in /project
+
+# "model_path|output_tag"  — tag must match the 1024 tag + _mn2048 so the pair is comparable
+SPECS=(
+  "$P/stageB_kl_amari_bdpo_token_bench1p7b_policy|kl_amari_bdpo_mn2048"
+  "$S/stageB_kl_bdpo_token_bench1p7b_policy|kl_bdpo_mn2048"
+  "$S/stageB_chi2_bdpo_token_bench1p7b_policy|chi2_bdpo_mn2048"
+  "$S/stageB_scale4b_kl_amari_bdpo_token_policy|scale4b_kl_amari_bdpo_mn2048"
+  "$S/stageB_scale4b_kl_canon_bdpo_token_policy|scale4b_kl_canon_bdpo_mn2048"
+  "$S/stageB_scale4b_adiv_amari_bdpo_token_policy|scale4b_adiv_amari_bdpo_mn2048"
+  "$S/stageB_scale4b_adiv_canon_bdpo_token_policy|scale4b_adiv_canon_bdpo_mn2048"
+  "$S/stageB_scale4b_js_amari_bdpo_token_policy|scale4b_js_amari_bdpo_mn2048"
+  "$S/stageB_scale4b_js_canon_bdpo_token_policy|scale4b_js_canon_bdpo_mn2048"
+  "$S/stageB_scale4b_hel_amari_bdpo_token_policy|scale4b_hel_amari_bdpo_mn2048"
+  "$S/stageB_scale4b_hel_canon_bdpo_token_policy|scale4b_hel_canon_bdpo_mn2048"
+  "$S/stageB_scale4b_chi2_amari_bdpo_token_policy|scale4b_chi2_amari_bdpo_mn2048"
+  "$S/stageB_scale4b_chi2_canon_bdpo_token_policy|scale4b_chi2_canon_bdpo_mn2048"
+  "Qwen/Qwen3-4B-Base|scale4b_base_mn2048"
+)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"
+MODEL="${SPEC%|*}"; TAG="${SPEC#*|}"
+case "$MODEL" in /*) [ -d "$MODEL" ] || { echo "policy $MODEL missing"; exit 1; } ;; esac
+
+echo "=== gen Arena-Hard v0.1 [$TAG] max-new 2048 from $MODEL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$MODEL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 2048 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="

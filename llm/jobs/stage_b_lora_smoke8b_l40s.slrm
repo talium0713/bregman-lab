@@ -1,0 +1,45 @@
+#!/bin/bash
+# LoRA SMOKE — Qwen3-8B-Base on a SINGLE L40S (48G), 20 steps. Measures the two numbers that decide the real
+# run: peak memory (does one GPU hold base + adapter + the fp32 [T,V] logits?) and s/step (does one
+# epoch fit the 11:30 walltime tier?). Also validates the two new code paths at once:
+#   - AdapterRef: pi_ref = the base weights reached by disable_adapter(), so NO second model is loaded.
+#     The replicated frozen reference is exactly what pushed 8B full-FT to 4 GPUs (see stage_b_scale_8b.slrm).
+#   - --init-noise on lora_B: LoRA starts at B=0, i.e. u_init=1 EXACTLY, the degeneracy init-noise exists
+#     to break. The perturbation must land on lora_B, never on the base (the base IS pi_ref here).
+# Submit FROM llm/:  sbatch jobs/stage_b_lora_smoke8b.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=lorasm8bL
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=1:30:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"   # NOT /project: it sits at
+                                                                       # 4952/5000 GiB and a saved 8B policy is 16 GB
+
+echo "=== 8B LoRA smoke (RKL canonical, 20 steps, +save) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --lora-r 128 --lora-alpha 128 --lora-dropout 0.05 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div kl --norm canon --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --steps 20 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 64 --log-every 5 --eval-every 10 --seed 0 \
+  --out "$OUT_DIR/smoke_lora8b_l40s_rkl_canon"
+echo "=== lora smoke done | $(date) ==="
+ls -la "$OUT_DIR/smoke_lora8b_l40s_rkl_canon_policy/" 2>/dev/null | head
+echo "reminder: rm -rf $OUT_DIR/smoke_lora8b_l40s_rkl_canon_policy  (16 GB, smoke only)"

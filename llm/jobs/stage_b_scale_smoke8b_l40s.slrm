@@ -1,0 +1,40 @@
+#!/bin/bash
+# Scale-ablation SMOKE 2b — Qwen3-8B-Base on 4× L40S (plentiful) via Accelerate+FSDP. Validates the FSDP
+# path AND whether 8B fits the L40S partition (policy sharded /4 = ~24G/GPU + ref replicated 16G = ~40G/48G).
+# If it fits, the whole 4B/8B sweep runs on L40S with zero H100 contention (only 14B needs H100).
+# Short (20 steps) + --save-policy to validate the FSDP full-state-dict save.
+# Submit FROM llm/:  sbatch jobs/stage_b_scale_smoke8b_l40s.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sbsm8bl40
+#SBATCH --gres=gpu:l40s:4
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=256G
+#SBATCH --time=1:30:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS=4
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+echo "=== 8B 4xL40S FSDP smoke (RKL canonical, 20 steps, +save) on $(hostname) | $(date) ==="; nvidia-smi
+accelerate launch --config_file jobs/accel_fsdp.yaml --num_processes 4 --main_process_port 29501 \
+  stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div kl --norm canon --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --steps 20 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 64 --log-every 5 --eval-every 10 --seed 0 --save-policy \
+  --out results/bench/smoke_scale8b_l40s_rkl_canon
+echo "=== smoke2b done | $(date) ==="
+ls -la results/bench/smoke_scale8b_l40s_rkl_canon_policy/ 2>/dev/null | head

@@ -1,0 +1,13 @@
+{
+  "a": "js_canon_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 995,
+  "nulls": 5,
+  "wins": 579,
+  "ties": 34,
+  "losses": 382,
+  "win_rate": 59.9,
+  "ci_lo": 56.2,
+  "ci_hi": 63.6
+}

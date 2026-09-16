@@ -1,0 +1,32 @@
+#!/bin/bash
+# Arena-Hard v0.1 GENERATION (RePO-match) for the FKL amari-form policy (rkl:amari, f'(1)=0), to
+# complete the FKL row of the amari-vs-canonical table. Same regime as gen_normcmp_arena.slrm.
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/gen_fkl_amari.slrm
+# Output: results/bench/arena_v01/rkl_amari_bdpo.jsonl  (then judge with the mini pipeline)
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=genfkla
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%j.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+POL="results/bench/stageB_rkl_amari_bdpo_token_bench1p7b_policy"
+[ -d "$POL" ] || { echo "policy $POL missing"; exit 1; }
+echo "=== gen Arena-Hard v0.1 [rkl_amari_bdpo] from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator rkl_amari_bdpo --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/rkl_amari_bdpo.jsonl"
+echo "=== done rkl_amari_bdpo | $(date) ==="

@@ -1,0 +1,13 @@
+{
+  "a": "kl_amari_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 994,
+  "nulls": 6,
+  "wins": 387,
+  "ties": 82,
+  "losses": 525,
+  "win_rate": 43.1,
+  "ci_lo": 39.8,
+  "ci_hi": 46.8
+}

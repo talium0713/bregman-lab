@@ -1,0 +1,11 @@
+{
+  "paper_name": "f01_toy_scaling",
+  "source_figure": "python/figs/toy_Asize_ablation",
+  "source_data": "fig_toy_ablation.py \u2014 analytic \u03a8(u) (left) + toy off-policy std sweep (right)",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1c4a136795c7581231ea8e6042318d531aba17e7",
+  "exported_at": "2026-09-13T02:11:39+00:00"
+}

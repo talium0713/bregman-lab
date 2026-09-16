@@ -1,0 +1,13 @@
+{
+  "a": "adiv_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 993,
+  "nulls": 7,
+  "wins": 452,
+  "ties": 65,
+  "losses": 476,
+  "win_rate": 48.8,
+  "ci_lo": 45.0,
+  "ci_hi": 52.4
+}

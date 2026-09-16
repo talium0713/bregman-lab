@@ -1,0 +1,13 @@
+{
+  "a": "scale4b_kl_amari_bdpo",
+  "b": "scale4b_base",
+  "n_prompts": 500,
+  "n_games": 993,
+  "nulls": 7,
+  "wins": 549,
+  "ties": 65,
+  "losses": 379,
+  "win_rate": 58.6,
+  "ci_lo": 55.0,
+  "ci_hi": 61.9
+}

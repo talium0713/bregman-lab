@@ -1,0 +1,11 @@
+{
+  "paper_name": "f13_policy_3x7_canonical",
+  "source_figure": "python/figs/part3_policy_3x7_p9",
+  "source_data": "run_canon_final.py run_2x7 / fig_policy_3x7 (re-rendered via rerender_3x7.py from panel_cache) \u2014 \u03c0* recovery under the exact inner term | off-policy Amari f'(1)=0 | off-policy canonical f'(1)=f''(1), peak 0.9 (high drift), 100 MDPs, pure off-policy (single logged a'). Amari-RKL IS shown as the control (\u0394\u03c0 0.521 vs canonical 0.160 = exact): RKL's recovery comes from the canonical generator, not from \"being RKL\". euc has no canonical cell \u2014 a Bregman divergence with no f(u) generator, so no canonical form exists. RKL's canonical arm equals its exact arm to machine precision \u2014 the sample-free property.",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "910ec33843efe97f3ad66976553dfb74691794d6",
+  "exported_at": "2026-09-15T17:27:04+00:00"
+}

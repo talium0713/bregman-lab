@@ -19,6 +19,11 @@ openai_key.txt
 llm/openai_key.txt
 **/openai_key.txt
 llm/results/**/*.json
+# ...but the head-to-head judgements ARE results the figures read at render time: without them
+# fig_normcmp.py / fig_vs_base.py cannot redraw fL3/fL3new/fL4 from a fresh clone.
+!llm/results/bench/arena_v01/h2h_normcmp/*.json
+!llm/results/bench/arena_v01/h2h_vs_base/*.json
+!llm/results/bench/arena_v01/h2h_scale4b/*.json
 llm/results/**/*.npz
 llm/results/*.json
 llm/results/*.npz

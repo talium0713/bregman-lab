@@ -1,0 +1,13 @@
+{
+  "a": "chi2_bdpo",
+  "b": "chi2_canon_bdpo",
+  "n_prompts": 500,
+  "n_games": 996,
+  "nulls": 4,
+  "wins": 347,
+  "ties": 54,
+  "losses": 595,
+  "win_rate": 37.6,
+  "ci_lo": 33.9,
+  "ci_hi": 40.8
+}

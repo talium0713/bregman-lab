@@ -1,0 +1,13 @@
+{
+  "a": "chi2_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 997,
+  "nulls": 3,
+  "wins": 389,
+  "ties": 79,
+  "losses": 529,
+  "win_rate": 43.0,
+  "ci_lo": 39.4,
+  "ci_hi": 46.8
+}

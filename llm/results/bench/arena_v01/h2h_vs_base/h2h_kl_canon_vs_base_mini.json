@@ -1,0 +1,13 @@
+{
+  "a": "kl_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 995,
+  "nulls": 5,
+  "wins": 584,
+  "ties": 36,
+  "losses": 375,
+  "win_rate": 60.5,
+  "ci_lo": 56.9,
+  "ci_hi": 64.0
+}

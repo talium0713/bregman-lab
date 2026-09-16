@@ -1,0 +1,45 @@
+#!/bin/bash
+# base -> f-DPO SWEEP: all 6 divergences trained DIRECTLY on Qwen3-1.7B-Base (pi_init=pi_ref=base), same
+# strong track as the base->DPO/RKL result (Arena v0.1 = 15.2). Tests whether divergence choice separates
+# on GENERATION quality once models are off the harness-bug floor.
+#   --init-noise 0.01 for ALL 6 (identical protocol): adiv/js/hel/chi2 have f'(1)=0 → they FREEZE at u=1
+#   without it; kl/rkl (f'(1)=1/-1) don't need it but the tiny ε washes out, so applying it everywhere keeps
+#   the comparison clean. token-level, single-sample, lr5e-6/b64/2ep (settled recipe).
+#   array 0-5 = kl rkl adiv js hel chi2.
+# Submit FROM llm/:  sbatch --exclude=kn010,kn001,kn035 jobs/stage_b_base_fdpo.slrm
+# Output: results/bench/stageB_{div}_bdpo_token_bench1p7b_policy (+ .json curve)
+# Then RePO-match gen + judge (that regime reproduces base=10.4 and gave DPO its clean +4).
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=basefdpo
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-5
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=20:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+DIVS=(kl rkl adiv js hel chi2)
+DIV="${DIVS[$SLURM_ARRAY_TASK_ID]}"
+
+echo "=== base->f-DPO [$DIV] (init-noise 0.01, token) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-1.7B-Base --policy Qwen/Qwen3-1.7B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 5 --eval-every 25 --seed 0 --save-policy \
+  --out "results/bench/stageB_${DIV}_bdpo_token_bench1p7b"
+echo "=== done base->f-DPO [$DIV] | $(date) ==="

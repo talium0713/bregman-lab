@@ -167,6 +167,21 @@ COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
 SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
+# ── figure-label constants (paper terminology; Notion §8 B2–B4 / §9 C0–C1) ─────────────
+# The results.json regime KEYS stay 'off'/'off_on'/'on' (don't re-parse old runs); these dicts map
+# key → the LABEL a figure prints, and MUST match preview_cth.tex Appendix C.1 / Table 2 exactly.
+# Terminology: inner-term integrand Ψ (was Φ); property permissible (was admissible); correction
+# canonical (was kln / KL-consistent); divergence-family parameter α; temperature β; shaping λ(s).
+PSI = "Ψ"
+REGIME_LABEL = {"exact": "exact", "on": "on-policy", "off_on": "resampled", "off": "off-policy"}
+REGIME_SUB = {                    # B6: self-descriptive parenthetical — where the next action a′ comes from
+    "exact":  r"closed form over all $a'$",
+    "on":     r"fresh rollouts",
+    "off_on": r"logged states, fresh $a' \sim \pi_\theta$",
+    "off":    r"the single recorded $a'$",
+}
+REGIME_ORDER = ["exact", "on", "off_on", "off"]   # A6/B6: cost-ascending == paper §4 / Fig 2 order
+
 
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Unified soft-argmax: π_a = ref_a · (f')^{-1}((Q_a − ν)/α),  ν chosen so Σ_a π_a = 1.
@@ -304,6 +319,56 @@ def make_adiv(a: float, kl_norm: bool = False) -> "Regularizer":
     (the standard normalization makes Φ→1−1/u, a spurious inner-term jump at a=1)."""
     s = _adiv_spec(a, kl_norm)
     return Regularizer("adiv", s.label, s)
+
+
+def canonical_spec(s: "Spec") -> "Spec":
+    """Affine-renormalize an f-divergence generator to the CANONICAL form f'(1)=f''(1): shift
+    f → f + c(t−1),  f' → f' + c   with  c = f''(1) − f'(1)   (f'' unchanged).  The affine term sums to
+    0 under Σ_a ref_a(·), so Ω and π* are UNCHANGED; but Φ(u)=f'(u)−f(u)/u shifts to Φ(u)+c/u, which
+    changes the single-sample off-policy inner-term estimate (the whole point — see fig_adiv_compare).
+    This generalizes the α-div `kl_norm` (which is exactly c=1) to any f-divergence.  Not defined for
+    euc (not an f-divergence).  For KL itself c=0, so canonical KL == standard KL."""
+    if s.type == "euc":
+        raise ValueError("euc is not an f-divergence — no canonical representative (Lemma 2(i))")
+    c = float(s.fpp(1.0) - s.fp(1.0))
+    f0, fp0, inv0 = s.f, s.fp, s.inv
+    return Spec(s.key, s.label, "fdiv",
+                f=lambda t, f0=f0, c=c: f0(t) + c * (t - 1.0),
+                fp=lambda t, fp0=fp0, c=c: fp0(t) + c,
+                fpp=s.fpp,
+                inv=(lambda y, inv0=inv0, c=c: inv0(y - c)) if inv0 is not None else None,
+                nu_bracket=s.nu_bracket)
+
+
+def make_canonical(rk: str) -> "Regularizer":
+    """The canonical-normalization representative of divergence `rk` (an f-divergence). Same Ω/π* as
+    REG[rk], canonical inner integrand Φ+c/u. Raises for euc."""
+    return Regularizer(rk, REG[rk].label, canonical_spec(REG[rk].spec))
+
+
+def standard_spec(s: "Spec") -> "Spec":
+    """Affine-renormalize an f-divergence generator to the STANDARD (Amari) form f'(1)=0: shift
+    f → f + c0(t−1), f' → f' + c0  with  c0 = −f'(1)  (f'' unchanged). This is the normalization
+    Amari's α-divergence family carries by construction (its linear terms enforce f(1)=f'(1)=0);
+    the α→1 limit is t ln t−(t−1), so KL's standard inner integrand is Φ→1−1/u (NOT the constant 1
+    of the canonical form). Same Ω/π* as REG[rk] (affine term sums to 0); only the single-sample
+    off-policy inner-term estimate differs. Not defined for euc (not an f-divergence)."""
+    if s.type == "euc":
+        raise ValueError("euc is not an f-divergence — no f'(1)=0 (Amari) representative")
+    c0 = float(-s.fp(1.0))
+    f0, fp0, inv0 = s.f, s.fp, s.inv
+    return Spec(s.key, s.label, "fdiv",
+                f=lambda t, f0=f0, c0=c0: f0(t) + c0 * (t - 1.0),
+                fp=lambda t, fp0=fp0, c0=c0: fp0(t) + c0,
+                fpp=s.fpp,
+                inv=(lambda y, inv0=inv0, c0=c0: inv0(y - c0)) if inv0 is not None else None,
+                nu_bracket=s.nu_bracket)
+
+
+def make_standard(rk: str) -> "Regularizer":
+    """The standard-normalization (Amari, f'(1)=0) representative of divergence `rk`. Same Ω/π* as
+    REG[rk], standard inner integrand Φ+c0/u. For KL this is t ln t−(t−1) ⇒ Φ=1−1/u. Raises for euc."""
+    return Regularizer(rk, REG[rk].label, standard_spec(REG[rk].spec))
 
 
 # ──────────────────────────────────────────────────────────────────────────────────────

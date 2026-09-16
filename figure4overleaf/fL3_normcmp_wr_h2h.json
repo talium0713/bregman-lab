@@ -1,0 +1,11 @@
+{
+  "paper_name": "fL3_normcmp_wr_h2h",
+  "source_figure": "llm/results/stageB_normcmp_wr_h2h",
+  "source_data": "fig_normcmp.py \u2014 canonical(f'=f'') vs Amari(f'=0) on Arena-Hard v0.1, judge gpt-4.1-mini-2025-04-14, 500 prompts; baseline WR from arena-hard-auto show_result.py, head-to-head boxes from the prompt-level bootstrap in llm/results/bench/arena_v01/h2h_normcmp/*_mini2_raw.json (pairwise_h2h.py, re-judged 2026-09-05 to keep the replicates)",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1c4a136795c7581231ea8e6042318d531aba17e7",
+  "exported_at": "2026-09-13T02:11:39+00:00"
+}

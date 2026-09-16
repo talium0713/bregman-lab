@@ -1,0 +1,54 @@
+#!/bin/bash
+# DIAGNOSTIC re-generation of the 8B Arena-Hard v0.1 answers at --max-new 2048 instead of 1024.
+#
+# WHY. At the 1024-token cap, 80.0% of the 8B Amari answers are still generating when they are cut
+# off, against 25.6% for canonical and 7.8% for the untrained base. The head-to-head Amari win rate
+# of 25.8% is therefore measuring truncation, not answer quality: excluding the repetition loops
+# moves it only to 27.2%, so looping is not the mechanism. Doubling the cap separates the two
+# questions that are currently confounded:
+#   (a) does the Amari policy eventually terminate, and just need more room?   -> at-cap drops
+#   (b) has it genuinely lost the ability to emit EOS?                          -> at-cap stays ~80%
+#
+# ALL THREE arms are regenerated, not just Amari. Changing the cap for one side only would make the
+# comparison meaningless. Every other generation flag is byte-identical to gen_scale4b.slrm, so the
+# 2048 set is internally comparable; it is NOT comparable to the 1024 rows of the vs-Base table,
+# which is why these write to _mn2048 tags rather than overwriting.
+#
+# Submit FROM llm/:  sbatch jobs/gen_scale8b_mn2048.slrm
+#   array 0 = amari, 1 = canon, 2 = base
+# Output: results/bench/arena_v01/{scale8b_kl_amari_bdpo,scale8b_kl_canon_bdpo,scale8b_base}_mn2048.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=g8b2048
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-2
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+SCRATCH="/scratch/$USER/bregman-lab/llm/results/bench"
+case "$SLURM_ARRAY_TASK_ID" in
+  0) MODEL="$SCRATCH/stageB_scale8b_kl_amari_bdpo_token_policy"; TAG="scale8b_kl_amari_bdpo_mn2048" ;;
+  1) MODEL="$SCRATCH/stageB_scale8b_kl_canon_bdpo_token_policy"; TAG="scale8b_kl_canon_bdpo_mn2048" ;;
+  2) MODEL="Qwen/Qwen3-8B-Base";                                 TAG="scale8b_base_mn2048" ;;
+esac
+case "$MODEL" in /*) [ -d "$MODEL" ] || { echo "policy $MODEL missing"; exit 1; } ;; esac
+
+echo "=== gen Arena-Hard v0.1 [$TAG] max-new 2048 from $MODEL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$MODEL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 2048 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="

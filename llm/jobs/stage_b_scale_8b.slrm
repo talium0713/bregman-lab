@@ -1,0 +1,49 @@
+#!/bin/bash
+# Scale ablation — Qwen3-8B-Base full-FT DPO (FSDP, 4× H100), amari vs canonical × 6 divergences.
+# 2xH100 OOMed at step 2 (job 5146435): the frozen ref is REPLICATED per rank, so 2 ranks held
+# 16G(params)+16G(optim)+16G(ref) and ran out on the fp32 [T,V] logits. On 4 ranks the sharded
+# part halves: 8G+8G+16G(ref) ≈ 32G + acts, comfortable in 80G.
+# Time is 11:30 on purpose: Killarney tiers H100 by walltime and <=12h reaches 20 nodes instead
+# of the 6 a >24h request sees. Measured 23s/step on 2 GPUs -> ~10h for 1910 steps on 4.
+# NOTE: the policy is only saved after the final step, so overrunning the limit loses the run.
+# Submit FROM llm/:  sbatch jobs/stage_b_scale_8b.slrm
+# Out: results/bench/stageB_scale8b_{div}_{norm}_bdpo_token_policy
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sw8b
+#SBATCH --gres=gpu:h100:4
+#SBATCH --array=0-11%2
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=400G
+#SBATCH --time=11:30:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS=6
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"   # checkpoints -> /scratch (/project group quota is near full)
+
+SPECS=(kl:amari kl:canon adiv:amari adiv:canon js:amari js:canon hel:amari hel:canon chi2:amari chi2:canon rkl:amari rkl:canon)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"; DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+PORT=$((29500 + SLURM_ARRAY_TASK_ID))
+
+echo "=== scale-8B [$DIV, norm=$NORM] FSDP 4xH100 (2ep) on $(hostname) | $(date) ==="; nvidia-smi
+accelerate launch --config_file jobs/accel_fsdp.yaml --num_processes 4 --main_process_port "$PORT" \
+  stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed 0 --save-policy \
+  --out "$OUT_DIR/stageB_scale8b_${DIV}_${NORM}_bdpo_token"
+echo "=== done scale-8B [$DIV, norm=$NORM] | $(date) ==="

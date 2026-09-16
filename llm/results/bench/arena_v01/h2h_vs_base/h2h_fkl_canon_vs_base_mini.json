@@ -1,0 +1,13 @@
+{
+  "a": "rkl_canon_bdpo",
+  "b": "Base_repo",
+  "n_prompts": 500,
+  "n_games": 994,
+  "nulls": 6,
+  "wins": 557,
+  "ties": 50,
+  "losses": 387,
+  "win_rate": 58.6,
+  "ci_lo": 54.8,
+  "ci_hi": 62.2
+}

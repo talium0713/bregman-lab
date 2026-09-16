@@ -1,0 +1,13 @@
+{
+  "a": "scale4b_adiv_canon_bdpo",
+  "b": "scale4b_base",
+  "n_prompts": 500,
+  "n_games": 996,
+  "nulls": 4,
+  "wins": 544,
+  "ties": 41,
+  "losses": 411,
+  "win_rate": 56.7,
+  "ci_lo": 52.9,
+  "ci_hi": 60.3
+}

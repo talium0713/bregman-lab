@@ -51,7 +51,7 @@ from divergences import (KEYS, SHORT, DEFAULT_ADIV_A,
 # with no model or GPU. Position t predicts token t+1; we score positions whose predicted token
 # is a completion (response) token.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, kln=False,
+def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp, norm="natural",
                       step_size=1, step_ids=None):
     """S(τ) = β Σ_t[f'(u_t) − C_Ω(s_t)] over completion tokens. Differentiable in lg_pol.
     lg_pol, lg_ref : [T, V] raw logits.  ids : [T].  comp : [T] bool (True on response tokens).
@@ -92,10 +92,10 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
         log_u_k = lu.new_zeros(int(sid.max()) + 1).index_add_(0, sid, lu)   # [K]: Σ_{t∈step} log u_t (differentiable)
         if clamp is not None:
             log_u_k = log_u_k.clamp(-clamp, clamp)
-        chosen = fprime_from_logu(key, log_u_k, adiv_a, kln=kln)
+        chosen = fprime_from_logu(key, log_u_k, adiv_a, norm=norm)
         if inner == "trl":                            # TRL/sequence estimator applied per step: chosen f'(u_k), NO inner term
             return beta * chosen.sum()                # β Σ_k f'(u_k)  (drops Φ; sequence-TRL's inner term cancels only at K=1)
-        inner_c = phi_from_logu(key, log_u_k, adiv_a, kln=kln)
+        inner_c = phi_from_logu(key, log_u_k, adiv_a, norm=norm)
         return beta * (chosen - inner_c).sum()        # β Σ_k f(u_k)/u_k
 
     if clamp is not None:
@@ -112,14 +112,14 @@ def score_from_logits(lg_pol, lg_ref, ids, comp, key, beta, inner, adiv_a, clamp
             inner_c = exact_C("euc", torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
                               adiv_a, dtype=lp.dtype)
     else:
-        chosen = fprime_from_logu(key, log_u, adiv_a, kln=kln)
+        chosen = fprime_from_logu(key, log_u, adiv_a, norm=norm)
         if inner == "trl":                            # TRL/sequence estimator applied per token: chosen f'(u), NO inner term
             inner_c = torch.zeros_like(chosen)
         elif inner == "sample":
-            inner_c = phi_from_logu(key, log_u, adiv_a, kln=kln)
+            inner_c = phi_from_logu(key, log_u, adiv_a, norm=norm)
         else:                                         # exact vocab sum (fp32 for training)
             inner_c = exact_C(key, torch.log_softmax(lp, -1), torch.log_softmax(lr, -1),
-                              adiv_a, dtype=lp.dtype, kln=kln)
+                              adiv_a, dtype=lp.dtype, norm=norm)
     return beta * ((chosen - inner_c) * m).sum()
 
 
@@ -193,15 +193,29 @@ def selftest():
 # ─────────────────────────────────────────────────────────────────────────────────────────
 # Models / data
 # ─────────────────────────────────────────────────────────────────────────────────────────
-def load_model(name, train):
+# device for tensors/models; overridden to the per-rank accelerator device when launched under
+# Accelerate+FSDP (multi-GPU full-FT for 4B/8B/14B). Default "cuda" keeps the single-GPU path identical.
+_DEVICE = "cuda"
+
+
+def load_model(name, train, place=True, ckpt=True):
     from transformers import AutoModelForCausalLM
+    kw = {}
+    try:                                    # flash-attention-2 (wheelhouse) — big speedup on long seqs
+        import flash_attn  # noqa: F401
+        kw["attn_implementation"] = "flash_attention_2"
+    except Exception:
+        pass
     try:
-        m = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16)
+        m = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16, **kw)
     except TypeError:
-        m = AutoModelForCausalLM.from_pretrained(name, torch_dtype=torch.bfloat16)
-    m.to("cuda")
+        m = AutoModelForCausalLM.from_pretrained(name, torch_dtype=torch.bfloat16, **kw)
+    if place:                               # under FSDP the policy is placed/sharded by accelerator.prepare
+        m.to(_DEVICE)
     if train:
-        m.train(); m.gradient_checkpointing_enable()
+        m.train()
+        if ckpt:                            # off trades memory for ~25-30% speed; the math is unchanged
+            m.gradient_checkpointing_enable()
     else:
         m.eval()
         for p in m.parameters():
@@ -261,22 +275,36 @@ def encode_pair(tok, ex, max_len, kw, step_mode="token"):
 
 
 def _logits(model, ids):
-    return model(ids.unsqueeze(0).to("cuda")).logits[0].float()      # [T, V] fp32
+    return model(ids.unsqueeze(0).to(_DEVICE)).logits[0].float()      # [T, V] fp32
 
 
-def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln=False, step_size=1):
+class AdapterRef:
+    """The reference model under LoRA. Calling it runs the policy with the adapter switched off, so
+    the base weights serve as pi_ref and no second copy of the model is held. This is the whole
+    memory argument for LoRA here: the replicated frozen reference is what forced 8B full
+    fine-tuning onto four GPUs."""
+
+    def __init__(self, policy):
+        self.policy = policy
+
+    def __call__(self, ids):
+        with self.policy.disable_adapter():
+            return self.policy(ids)
+
+
+def pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, norm="natural", step_size=1):
     (iw, cw, sw), (il, cl, sl) = enc
     with torch.no_grad():
         rw, rl = _logits(ref, iw), _logits(ref, il)
-    sw = sw.to("cuda") if sw is not None else None
-    sl = sl.to("cuda") if sl is not None else None
-    Sw = score_from_logits(_logits(policy, iw), rw, iw.to("cuda"), cw.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size, sw)
-    Sl = score_from_logits(_logits(policy, il), rl, il.to("cuda"), cl.to("cuda"), key, beta, inner, adiv_a, clamp, kln, step_size, sl)
+    sw = sw.to(_DEVICE) if sw is not None else None
+    sl = sl.to(_DEVICE) if sl is not None else None
+    Sw = score_from_logits(_logits(policy, iw), rw, iw.to(_DEVICE), cw.to(_DEVICE), key, beta, inner, adiv_a, clamp, norm, step_size, sw)
+    Sl = score_from_logits(_logits(policy, il), rl, il.to(_DEVICE), cl.to(_DEVICE), key, beta, inner, adiv_a, clamp, norm, step_size, sl)
     return Sw, Sl
 
 
 @torch.no_grad()
-def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, kln=False, step_size=1, step_mode="token"):
+def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw, n, norm="natural", step_size=1, step_mode="token"):
     policy.eval()
     acc = tot = 0
     margins = []
@@ -284,7 +312,7 @@ def evaluate(policy, ref, tok, ds, key, beta, inner, adiv_a, clamp, max_len, kw,
         enc = encode_pair(tok, ex, max_len, kw, step_mode)
         if enc is None:
             continue
-        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, kln, step_size)
+        Sw, Sl = pair_scores(policy, ref, enc, key, beta, inner, adiv_a, clamp, norm, step_size)
         acc += int(Sw.item() > Sl.item()); tot += 1; margins.append(Sw.item() - Sl.item())
     policy.train()
     return {"eval_acc": acc / max(tot, 1), "eval_margin": float(np.mean(margins)) if margins else 0.0,
@@ -314,10 +342,32 @@ def main():
     ap.add_argument("--grad-accum", type=int, default=8, help="pairs per optimizer step (effective batch)")
     ap.add_argument("--max-len", type=int, default=768)
     ap.add_argument("--adiv-a", type=float, default=DEFAULT_ADIV_A)
-    ap.add_argument("--kln", action="store_true", help="KL-normalize the generator (f'(1)=1); no freeze from π_ref init. Not for euc.")
+    ap.add_argument("--kln", action="store_true", help="legacy alias for --norm kln (KL-normalize, f'(1)=1). Not for euc.")
+    ap.add_argument("--norm", default="natural", choices=["natural", "amari", "kln", "canon"],
+                    help="generator normalization: natural | amari (f'(1)=0) | kln (f'(1)=1) | canon (f'(1)=f''(1)). Not for euc.")
     ap.add_argument("--step-mode", default="token", choices=["token", "fixed", "newline"],
                     help="token=token-level; fixed=--step-size tokens/step (ablation); newline=Step-DPO-style sentence steps")
     ap.add_argument("--step-size", type=int, default=1, help="tokens per step for --step-mode fixed (>1)")
+    # ---- LoRA. Settings follow the alignment-handbook Zephyr DPO QLoRA recipe (r=alpha=128,
+    # dropout 0.05, adapters on all seven linear projections, lr 5e-6, max_length 1024), which is the
+    # closest published DPO configuration to ours since it also trains on UltraFeedback in bf16 with
+    # flash-attention-2. Targeting every linear layer rather than q/v only follows QLoRA (Dettmers
+    # et al. 2023). With an adapter the reference model is not loaded at all: disabling the adapter
+    # restores the base model, which is what TRL does ("the reference model is not needed since the
+    # adapter can be disabled to revert to the initial model").
+    ap.add_argument("--save-adapter-every", type=int, default=0,
+                    help="LoRA only: every N steps, write the ADAPTER (~1.4G fp32, not the 16G merged model) to "
+                         "{out}_adapter. Insurance for multi-day runs: the merged policy is written only "
+                         "after the final step, so without this a walltime overrun or node failure loses "
+                         "everything. Merge a rescued adapter with merge_adapter.py.")
+    ap.add_argument("--no-grad-checkpoint", action="store_true",
+                    help="disable gradient checkpointing (recompute). Numerically identical, ~25-30%% faster, "
+                         "much more activation memory — worth it under LoRA on one 80G H100, where the frozen "
+                         "base leaves most of the card unused.")
+    ap.add_argument("--lora-r", type=int, default=0, help="LoRA rank, 0 disables LoRA (full fine-tuning)")
+    ap.add_argument("--lora-alpha", type=int, default=0, help="LoRA alpha, defaults to --lora-r")
+    ap.add_argument("--lora-dropout", type=float, default=0.05)
+    ap.add_argument("--lora-target", default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj")
     ap.add_argument("--clamp", type=float, default=15.0, help="clamp |log u| (heavy-tail guard, §4); 0 disables")
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm (raise to relax the aggressive default)")
     ap.add_argument("--init-noise", type=float, default=0.0,
@@ -341,8 +391,9 @@ def main():
     torch.manual_seed(args.seed)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     clamp = args.clamp if args.clamp and args.clamp > 0 else None
-    if args.kln and args.div == "euc":
-        raise SystemExit("euc is excluded from kln (Bregman, no f(u) generator) — drop --kln or --div euc")
+    norm = "kln" if args.kln else args.norm       # --kln is a legacy alias; --norm wins otherwise
+    if norm != "natural" and args.div == "euc":
+        raise SystemExit("euc is excluded from normalization (Bregman, no f(u) generator) — use --norm natural or --div ≠ euc")
     if args.step_mode == "token" and args.step_size > 1:   # --step-size>1 alone ⇒ fixed-size steps (back-compat)
         args.step_mode = "fixed"
     if args.step_mode == "fixed" and args.step_size <= 1:
@@ -351,25 +402,82 @@ def main():
         raise SystemExit("step-level (--step-mode fixed/newline) needs --inner sample and not euc "
                          "(the exact inner term over the sentence action space is intractable)")
 
+    # ── optional multi-GPU full-FT via Accelerate + FSDP (4B/8B/14B). Activates only when launched
+    #    distributed (WORLD_SIZE>1, e.g. `accelerate launch --config_file fsdp.yaml`). The single-GPU
+    #    path (accel is None) is byte-identical to before. ─────────────────────────────────────────
+    global _DEVICE
+    accel = None
+    world, rank, is_main = 1, 0, True
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        from accelerate import Accelerator
+        accel = Accelerator()                     # FSDP + bf16 come from the accelerate config at launch
+        _DEVICE = accel.device
+        world, rank, is_main = accel.num_processes, accel.process_index, accel.is_main_process
+        accel.print(f"[FSDP] world={world}  device={_DEVICE}  (grad_accum {args.grad_accum} -> "
+                    f"{max(1, args.grad_accum // world)}/rank)")
+
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.policy or args.ref)
+    if getattr(tok, "chat_template", None) is None:
+        # Qwen3-*-Base ships a chat template; Llama-3.2-* and gemma-*-pt do not, and encode_pair needs
+        # one to find the prompt/response boundary it masks on. Follow the convention the DPO codebase
+        # uses for base checkpoints (Rafailov et al. 2023, and the f-DPO fork of it): the prompt is
+        # "\n\nHuman: ... \n\nAssistant:" and the response is terminated with the EOS token, which that
+        # code appends explicitly (chosen_tokens['input_ids'].append(tokenizer.eos_token_id)).
+        #
+        # The EOS is the part that matters. An earlier version of this fallback emitted "role: content"
+        # with no terminator, so nothing in training ever taught the policy to stop. gen_bench.py halts
+        # on eos_token_id, the policy never produced one, and 41% of Llama answers ran to the 1024-token
+        # cap while re-emitting the turn markers. That is an artificial failure to terminate, injected
+        # into the exact axis this paper measures, so it invalidated those runs.
+        tok.chat_template = (
+            "{% for m in messages %}"
+            "{% if m['role'] == 'user' %}{{ '\n\nHuman: ' + m['content'] }}"
+            "{% elif m['role'] == 'assistant' %}{{ '\n\nAssistant: ' + m['content'] + eos_token }}"
+            "{% endif %}{% endfor %}"
+            "{% if add_generation_prompt %}{{ '\n\nAssistant:' }}{% endif %}")
+        print(f"[tok] {args.policy or args.ref}: no chat_template -> installed the DPO-style fallback "
+              f"(Human/Assistant turns, response terminated with {tok.eos_token!r})", flush=True)
     kw = {}
     try:                                            # Qwen3: suppress the <think> block
         tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, enable_thinking=False)
         kw = {"enable_thinking": False}
-    except TypeError:
+    except (TypeError, ValueError):                 # kwarg unknown, or template does not accept it
         pass
 
-    ref = load_model(args.ref, train=False)
-    policy = load_model(args.policy or args.ref, train=True)
+    ckpt = not args.no_grad_checkpoint
+    policy = load_model(args.policy or args.ref, train=True, place=(accel is None), ckpt=ckpt)
+    if args.lora_r > 0:
+        from peft import LoraConfig, get_peft_model
+        if ckpt:
+            policy.enable_input_require_grads()             # gradient checkpointing + frozen base: without this no
+                                                        # checkpointed block input requires grad and backward fails
+        policy = get_peft_model(policy, LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha or args.lora_r, lora_dropout=args.lora_dropout,
+            target_modules=[m for m in args.lora_target.split(",") if m], bias="none", task_type="CAUSAL_LM"))
+        ref = AdapterRef(policy)                        # π_ref = the base weights, reached by disabling the adapter
+        if is_main:
+            policy.print_trainable_parameters()
+    else:
+        ref = load_model(args.ref, train=False)                   # frozen reference: replicated on each rank
+
     if args.init_noise > 0:                            # break the u=1 degeneracy of the standard-DPO init (π_θ=π_ref):
         torch.manual_seed(args.seed + 1)               # one-time ε weight perturbation so u_init≠1 (else non-admissible
         with torch.no_grad():                          # single-sample freezes, g'(1)=f'(1)=0). RKL is insensitive to it (control).
-            for p in policy.parameters():
+            # Under LoRA the perturbation MUST land on lora_B (zero-initialised, hence u_init=1 exactly) and not on
+            # the base weights, which are π_ref itself here — perturbing them would move the reference too.
+            tgt = [(n, p) for n, p in policy.named_parameters() if "lora_B" in n] if args.lora_r > 0 \
+                else [(n, p) for n, p in policy.named_parameters()]
+            for n, p in tgt:                           # (before FSDP shard: full model, identical on every rank)
                 if p.dim() >= 2:                       # perturb weight matrices only (not norms/biases)
-                    p.add_(torch.randn_like(p) * (args.init_noise * p.float().std()))
-    opt = torch.optim.AdamW(policy.parameters(), lr=args.lr, betas=(0.9, args.adam_beta2),
-                            weight_decay=args.weight_decay)
+                    sd = p.float().std()
+                    if not torch.isfinite(sd) or sd == 0:   # lora_B starts at exactly 0 -> std 0; seed off lora_A's scale
+                        sd = torch.tensor(1.0 / max(args.lora_r, 1))
+                    p.add_(torch.randn_like(p) * (args.init_noise * sd))
+    opt = torch.optim.AdamW([p for p in policy.parameters() if p.requires_grad],
+                            lr=args.lr, betas=(0.9, args.adam_beta2), weight_decay=args.weight_decay)
+    if accel is not None:
+        policy, opt = accel.prepare(policy, opt)       # FSDP-shard the policy + its optimizer states
 
     ds = [json.loads(l) for l in open(args.data) if l.strip()]
     rng = np.random.default_rng(args.seed); rng.shuffle(ds)
@@ -391,17 +499,19 @@ def main():
 
     def train_iter():
         while True:
-            order = rng.permutation(len(ds_train))
-            for j in order:
+            order = rng.permutation(len(ds_train))     # same permutation on every rank (shared rng seed)
+            for j in order[rank::world]:               # each rank consumes a disjoint stride -> data-parallel
                 yield ds_train[j]
     it = train_iter()
+    accum_local = max(1, args.grad_accum // world)     # per-rank micro-steps; FSDP averages across ranks
+                                                       # so global effective batch stays ~grad_accum
 
     hist = []
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()          # measure the TRAINING peak (exclude load transients)
     t0 = time.time()
     seg = f"newline" if args.step_mode == "newline" else (f"fixed×{args.step_size}" if args.step_mode == "fixed" else "token")
-    print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} kln={args.kln} step={seg} "
+    is_main and print(f"=== Stage B: Ω={SHORT[args.div]} (key {args.div}) inner={args.inner} norm={norm} step={seg} "
           f"beta={args.beta} lr={args.lr}({args.lr_schedule},wu{args.warmup_ratio}) wd={args.weight_decay} "
           f"β2={args.adam_beta2} steps={args.steps}{f'(={args.epochs}ep)' if args.epochs else ''} accum={args.grad_accum} "
           f"clip={args.grad_clip} | train={len(ds_train)} eval={len(ds_eval)}"
@@ -419,22 +529,28 @@ def main():
         opt.zero_grad(set_to_none=True)
         losses, accs = [], []
         got = 0
-        while got < args.grad_accum:
+        while got < accum_local:
             enc = encode_pair(tok, next(it), args.max_len, kw, args.step_mode)
             if enc is None:
                 continue
-            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, args.kln, args.step_size)
+            Sw, Sl = pair_scores(policy, ref, enc, args.div, args.beta, args.inner, args.adiv_a, clamp, norm, args.step_size)
             loss = -F.logsigmoid(Sw - Sl)
             if not torch.isfinite(loss):
                 print(f"[warn] non-finite loss at step {step} — skipping this pair"); continue
-            (loss / args.grad_accum).backward()
+            if accel is not None:                       # /accum_local per rank; FSDP mean-reduce over ranks
+                accel.backward(loss / accum_local)      #   -> global grad = mean over the ~grad_accum batch
+            else:
+                (loss / args.grad_accum).backward()
             losses.append(loss.item()); accs.append(int(Sw.item() > Sl.item())); got += 1
         if args.grad_noise > 0:                       # SGLD-style decaying gradient noise: kicks θ off the u=1 critical point
             sigma = args.grad_noise / (1.0 + step) ** 0.55
             for p in policy.parameters():
                 if p.grad is not None:
                     p.grad.add_(torch.randn_like(p.grad) * sigma)
-        gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
+        if accel is not None:
+            gnorm = accel.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
+        else:
+            gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.grad_clip).item()
         opt.step()
         if sched is not None:
             sched.step()
@@ -447,19 +563,41 @@ def main():
                 rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
             eval_every = args.eval_every if args.eval_every > 0 else args.log_every
             if step % eval_every == 0 or step == 1 or step == args.steps:   # eval is the expensive part — decoupled from logging
-                rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,
-                                    args.adiv_a, clamp, args.max_len, kw, args.eval_n, args.kln, args.step_size, args.step_mode))
-            hist.append(rec)
-            ev = f"eval_acc {rec['eval_acc']:.3f} margin {rec['eval_margin']:+.3f}  " if "eval_acc" in rec else ""
-            print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
-                  f"{ev}|g| {gnorm:.2f}  {rec['sec']:.0f}s  mem {rec.get('gpu_reserved_gb', '?')}G")
-            with open(args.out + ".json", "w") as f:
-                json.dump({"args": vars(args), "history": hist}, f, indent=2)
+                rec.update(evaluate(policy, ref, tok, ds_eval, args.div, args.beta, args.inner,   # FSDP: ALL ranks (collective forward)
+                                    args.adiv_a, clamp, args.max_len, kw, args.eval_n, norm, args.step_size, args.step_mode))
+            if is_main:                                   # only main logs/saves; every rank still ran eval above
+                hist.append(rec)
+                ev = f"eval_acc {rec['eval_acc']:.3f} margin {rec['eval_margin']:+.3f}  " if "eval_acc" in rec else ""
+                print(f"  step {step:4d}  loss {rec['loss']:.4f}  train_acc {rec['train_acc']:.3f}  "
+                      f"{ev}|g| {gnorm:.2f}  {rec['sec']:.0f}s  mem {rec.get('gpu_reserved_gb', '?')}G")
+                with open(args.out + ".json", "w") as f:
+                    json.dump({"args": vars(args), "history": hist}, f, indent=2)
+
+        if args.lora_r > 0 and args.save_adapter_every > 0 and step % args.save_adapter_every == 0 and is_main:
+            # Adapter only: ~0.7G and, unlike merge_and_unload(), it does NOT consume the PeftModel,
+            # so training continues untouched. Overwrites in place -> one directory, not one per step.
+            policy.save_pretrained(args.out + "_adapter")
+            tok.save_pretrained(args.out + "_adapter")   # carry the RUNTIME chat_template with it: a base
+            # model may have none and we install a fallback, so merging against a fresh base tokenizer
+            # would silently lose the template the policy was trained against.
+            print(f"  [ckpt] adapter -> {args.out}_adapter (step {step})")
 
     if args.save_policy:
-        policy.save_pretrained(args.out + "_policy"); tok.save_pretrained(args.out + "_policy")
-        print("saved policy ->", args.out + "_policy")
-    print("done ->", args.out + ".json")
+        if accel is not None:                              # FSDP: gather the full (unsharded) state dict, save on main
+            accel.wait_for_everyone()
+            state = accel.get_state_dict(policy)
+            unwrapped = accel.unwrap_model(policy)
+            if is_main:
+                unwrapped.save_pretrained(args.out + "_policy", state_dict=state, safe_serialization=True)
+                tok.save_pretrained(args.out + "_policy")
+        else:
+            to_save = policy.merge_and_unload() if args.lora_r > 0 else policy   # LoRA: fold BA into the base so
+            to_save.save_pretrained(args.out + "_policy")                         # gen_*.slrm needs no change
+            tok.save_pretrained(args.out + "_policy")
+        if is_main:
+            print("saved policy ->", args.out + "_policy")
+    if is_main:
+        print("done ->", args.out + ".json")
 
 
 if __name__ == "__main__":

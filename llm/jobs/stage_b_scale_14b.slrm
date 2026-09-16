@@ -1,0 +1,44 @@
+#!/bin/bash
+# Scale ablation — Qwen3-14B-Base full-FT DPO (FSDP, 4× H100), amari vs canonical × 6 divergences.
+# 14B: policy 112G bf16 sharded /4 = 28G + ref 28G replicated + acts ~15G ≈ 71G/80G (tight — validate
+# with the 14B smoke first). Array 0-11 %2. Submit FROM llm/:  sbatch jobs/stage_b_scale_14b.slrm
+# Out: results/bench/stageB_scale14b_{div}_{norm}_bdpo_token_policy
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sw14b
+#SBATCH --gres=gpu:h100:4
+#SBATCH --array=0-11%2
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=800G
+#SBATCH --time=40:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS=6
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"   # checkpoints -> /scratch (/project group quota is near full)
+
+SPECS=(kl:amari kl:canon adiv:amari adiv:canon js:amari js:canon hel:amari hel:canon chi2:amari chi2:canon rkl:amari rkl:canon)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"; DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+PORT=$((29520 + SLURM_ARRAY_TASK_ID))
+
+echo "=== scale-14B [$DIV, norm=$NORM] FSDP 4xH100 (2ep) on $(hostname) | $(date) ==="; nvidia-smi
+accelerate launch --config_file jobs/accel_fsdp.yaml --num_processes 4 --main_process_port "$PORT" \
+  stage_b_train.py \
+  --ref Qwen/Qwen3-14B-Base --policy Qwen/Qwen3-14B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed 0 --save-policy \
+  --out "$OUT_DIR/stageB_scale14b_${DIV}_${NORM}_bdpo_token"
+echo "=== done scale-14B [$DIV, norm=$NORM] | $(date) ==="

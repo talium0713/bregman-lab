@@ -59,7 +59,7 @@ class RunConfig:
     n_seeds: int = 100             # training seeds per cell
     peaks: tuple = (0.7,)          # calibration anchors
     nmc: tuple = (1, 4, 16)        # MC budget grid (off uses only n_mc=1: inner term ignores it)
-    regimes: tuple = ("off", "off_on", "on")
+    regimes: tuple = ("off", "off_on", "on", "exact")   # exact (A6): closed-form inner term, tabular only
     steps: int = 400
     gamma: float = GAMMA
     eps: float = EPS               # rollout/target transition noise (single-eps runs)
@@ -80,7 +80,7 @@ class RunConfig:
 def _nmc_grid(regime: str, nmc: tuple) -> tuple:
     """The off regime's inner term uses the single logged a' (n_mc is ignored), so sweeping it
     would only duplicate identical work -> collapse to a single point."""
-    return (1,) if regime == "off" else tuple(nmc)
+    return (1,) if regime in ("off", "exact") else tuple(nmc)   # exact: closed form, n_mc irrelevant
 
 
 def _train_cell(rc: RunConfig, rewards, alpha, sol, data, mi, pi, peak, regime, rk, ri, nm,
@@ -128,7 +128,7 @@ def run_config(task: dict, rc_d: dict) -> dict:
     alpha = calibrate(rewards, peak, rc.gamma, rc.eps)[rk]
     sol = solve_dp(rk, rewards, uniform_pis(rc.depth), alpha, rc.gamma, rc.eps)
     data = (make_dataset(rewards, rc.eps, rc.gamma, rng_for(rc.root, "data_off", mi, pi), rc.npairs)
-            if regime in ("off", "off_on") else None)
+            if regime in ("off", "off_on", "exact") else None)   # exact reads the logged states like off
     return _train_cell(rc, rewards, alpha, sol, data, mi, pi, peak, regime, rk, ri, nm, rc.eps)
 
 
@@ -148,7 +148,7 @@ def run_mdp_block(block: dict, rc_d: dict) -> list:
         sols = {rk: solve_dp(rk, rewards, uniform_pis(rc.depth), alphas[rk], rc.gamma, eps_roll)
                 for rk in REGKEYS}
         for regime in rc.regimes:
-            if regime in ("off", "off_on"):
+            if regime in ("off", "off_on", "exact"):   # exact reads the logged states like off
                 dkey = (mi, pi, ei) if sweep else (mi, pi)
                 data = make_dataset(rewards, eps_roll, rc.gamma,
                                     rng_for(rc.root, "data_off", *dkey), rc.npairs)

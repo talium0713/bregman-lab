@@ -1,0 +1,31 @@
+# Accelerate FSDP (full-shard) config for the scale-ablation full-FT runs (8B/14B, and multi-GPU 4B).
+# Launch:  accelerate launch --config_file jobs/accel_fsdp.yaml --num_processes <N_GPUS> stage_b_train.py ...
+# The policy + optimizer are sharded across the N GPUs on one H100 node; the frozen ref is replicated.
+# num_processes is passed at launch (= --gres GPU count), not fixed here.
+compute_environment: LOCAL_MACHINE
+distributed_type: FSDP
+# 'no' (not bf16): the model is already loaded in bf16, so keep FSDP in bf16 THROUGHOUT (params, grads,
+# optimizer) — matching the proven single-GPU recipe (bf16 AdamW, ~32 GB policy for 4B). mixed_precision:bf16
+# makes FSDP keep an fp32 master copy (2x memory) and OOMs on L40S; 'no' avoids that upcast.
+mixed_precision: 'no'
+machine_rank: 0
+num_machines: 1
+rdzv_backend: static
+same_network: true
+main_training_function: main
+downcast_bf16: 'no'
+use_cpu: false
+tpu_use_cluster: false
+tpu_use_sudo: false
+fsdp_config:
+  fsdp_sharding_strategy: FULL_SHARD
+  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
+  fsdp_state_dict_type: FULL_STATE_DICT       # so accel.get_state_dict gathers a full HF-loadable checkpoint
+  fsdp_backward_prefetch: BACKWARD_PRE
+  fsdp_use_orig_params: true                  # optimizer built on orig params (+ init-noise) before prepare
+  fsdp_sync_module_states: true               # rank0 weights broadcast -> identical init on all ranks
+  fsdp_offload_params: false
+  fsdp_forward_prefetch: false
+  fsdp_cpu_ram_efficient_loading: false
+  fsdp_activation_checkpointing: false        # model already calls gradient_checkpointing_enable()

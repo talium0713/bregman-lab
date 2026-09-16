@@ -1,0 +1,11 @@
+{
+  "paper_name": "f03_adiv_normalization",
+  "source_figure": "python/figs/adiv_compare_p80",
+  "source_data": "fig_adiv_compare.py \u00b7 run_adiv_p80{,_kln}/results.json (T5, peak 0.8)",
+  "formats": [
+    "png",
+    "pdf"
+  ],
+  "git_commit": "1c4a136795c7581231ea8e6042318d531aba17e7",
+  "exported_at": "2026-09-13T02:11:39+00:00"
+}

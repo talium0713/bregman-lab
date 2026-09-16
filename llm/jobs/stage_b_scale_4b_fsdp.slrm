@@ -1,0 +1,50 @@
+#!/bin/bash
+# Scale ablation — Qwen3-4B-Base full-FT DPO, amari vs canonical. FSDP 2xH100 variant of
+# stage_b_scale_4b.slrm, identical recipe and identical --out paths (drop-in replacement).
+#
+# Why: the 1-GPU version asks for 20h, and Killarney tiers H100 by requested walltime — >24h
+# reaches only the 6-node b3 tier, whose nodes sat draining for days while the 12h tier (b2) ran
+# fine (both 8B runs landed there). Measured 26.6 s/step on 1xH100 => ~14.1h, which cannot fit
+# 12h; on 2 ranks it is ~8-9h (8B on 4 ranks measured 11.9 s/step at the same per-GPU load), so
+# 11:30 fits with margin. 2xL40S was measured at 60.3 s/step (~32h) and is NOT viable.
+#
+# Submit FROM llm/ for the specs still missing:  sbatch --array=7-11%2 jobs/stage_b_scale_4b_fsdp.slrm
+# Out (same as the 1-GPU script): results/bench/stageB_scale4b_{div}_{norm}_bdpo_token_policy
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=sw4bf
+#SBATCH --gres=gpu:h100:2
+#SBATCH --array=0-11%2
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=200G
+#SBATCH --time=11:30:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"
+
+SPECS=(kl:amari kl:canon adiv:amari adiv:canon js:amari js:canon hel:amari hel:canon chi2:amari chi2:canon rkl:amari rkl:canon)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"; DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+PORT=$((29600 + SLURM_ARRAY_TASK_ID))   # offset from the 8B script's 29500+id to avoid a clash
+
+echo "=== scale-4B [$DIV, norm=$NORM] FSDP 2xH100 (2ep) on $(hostname) | $(date) ==="; nvidia-smi
+accelerate launch --config_file jobs/accel_fsdp.yaml --num_processes 2 --main_process_port "$PORT" \
+  stage_b_train.py \
+  --ref Qwen/Qwen3-4B-Base --policy Qwen/Qwen3-4B-Base --init-noise 0.01 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed 0 --save-policy \
+  --out "$OUT_DIR/stageB_scale4b_${DIV}_${NORM}_bdpo_token"
+echo "=== done scale-4B [$DIV, norm=$NORM] | $(date) ==="
