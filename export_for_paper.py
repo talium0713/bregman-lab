@@ -19,7 +19,7 @@ LAYERED_CONFIG = {
             "reward": "Uniform(-0.8,0.8) on every (layer, state, action)",
             "transitions": "depend on the action only; s'=a w.p. 1-eps, else uniform over the rest"},
     "start": "uniform over the three layer-0 states",
-    "pi_ref": "uniform at every state (t05 overrides this with a peaked reference)",
+    "pi_ref": "uniform at every state",
     "oracle": "Bradley-Terry on gamma-discounted trajectory return differences, temperature 1",
     "runs": "100 independently drawn MDPs, one training seed each",
     "weight": "calibrated per (regularizer, target peak) by bisection, not a fixed beta",
@@ -62,15 +62,24 @@ FIGS = {
                                     "fig_mechanism.py — the same 2x2 split for the trajectory sum; "
                                     "non-admissible spread grows as sqrt(H-1) in both rows, canonical RKL "
                                     "stays exactly 0."),
-    "t04_state_anatomy":           ("python/figs/t04_state_anatomy",
+    "t04_state_anatomy_p7":        ("python/figs/t04_state_anatomy_p7",
                                     "fig_paper_layered_v2.py — 2x7 at peak 0.7: rows are the seven "
-                                    "regularizers, columns Amari vs canonical; pi* (dashed, recomputed with "
-                                    "solve_dp) against the recovered policy over the twelve cells."),
+                                    "regularizers, columns Amari vs canonical; pi* (dashed, recomputed "
+                                    "with solve_dp) against the recovered policy over the twelve cells."),
+    "t04_state_anatomy_p8":        ("python/figs/t04_state_anatomy_p8",
+                                    "fig_paper_layered_v2.py — the same 2x7 at peak 0.8."),
     "t04_state_anatomy_p9":        ("python/figs/t04_state_anatomy_p9",
-                                    "fig_paper_layered_v2.py — the same 2x7 at peak 0.9 (high drift)."),
+                                    "fig_paper_layered_v2.py — the same 2x7 at peak 0.9 (high drift); "
+                                    "only RKL's canonical arm still matches its exact arm here."),
+    "t06_alpha_sweep_p6":          ("python/figs/t06_alpha_sweep_p6",
+                                    "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.6."),
+    "t06_alpha_sweep_p7":          ("python/figs/t06_alpha_sweep_p7",
+                                    "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.7."),
+    "t06_alpha_sweep_p8":          ("python/figs/t06_alpha_sweep_p8",
+                                    "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.8."),
     "t06_alpha_sweep":             ("python/figs/t06_alpha_sweep",
-                                    "fig_paper_layered_v2.py — the alpha family under both "
-                                    "normalizations, one panel per calibration peak (0.6/0.7/0.8)."),
+                                    "fig_paper_layered_v2.py — the three peaks side by side, for the "
+                                    "main body. Same data as the three standalone files."),
     "t07_calibration":             ("python/figs/t07_calibration",
                                     "fig_paper_layered.py — policy peak vs the regularization weight, with "
                                     "the calibrated anchors at all three target peaks (MDP 0)."),

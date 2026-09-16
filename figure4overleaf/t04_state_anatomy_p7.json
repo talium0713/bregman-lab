@@ -1,13 +1,13 @@
 {
-  "paper_name": "t04_state_anatomy",
-  "source_figure": "python/figs/t04_state_anatomy",
+  "paper_name": "t04_state_anatomy_p7",
+  "source_figure": "python/figs/t04_state_anatomy_p7",
   "source_data": "fig_paper_layered_v2.py \u2014 2x7 at peak 0.7: rows are the seven regularizers, columns Amari vs canonical; pi* (dashed, recomputed with solve_dp) against the recovered policy over the twelve cells.",
   "formats": [
     "png",
     "pdf"
   ],
-  "git_commit": "bd5d586cf4b916e2786db3ff5dde7268ac3473a8",
-  "exported_at": "2026-09-16T21:45:42+00:00",
+  "git_commit": "248ec569b00e88ab04cea3191c936af282c7a0b6",
+  "exported_at": "2026-09-16T22:25:28+00:00",
   "config": {
     "env": {
       "depth": 4,
@@ -19,7 +19,7 @@
       "transitions": "depend on the action only; s'=a w.p. 1-eps, else uniform over the rest"
     },
     "start": "uniform over the three layer-0 states",
-    "pi_ref": "uniform at every state (t05 overrides this with a peaked reference)",
+    "pi_ref": "uniform at every state",
     "oracle": "Bradley-Terry on gamma-discounted trajectory return differences, temperature 1",
     "runs": "100 independently drawn MDPs, one training seed each",
     "weight": "calibrated per (regularizer, target peak) by bisection, not a fixed beta",

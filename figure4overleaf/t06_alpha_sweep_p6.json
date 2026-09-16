@@ -1,7 +1,7 @@
 {
-  "paper_name": "t02_trajectory_compounding",
-  "source_figure": "python/figs/t02_trajectory_compounding",
-  "source_data": "fig_mechanism.py \u2014 the same 2x2 split for the trajectory sum; non-admissible spread grows as sqrt(H-1) in both rows, canonical RKL stays exactly 0.",
+  "paper_name": "t06_alpha_sweep_p6",
+  "source_figure": "python/figs/t06_alpha_sweep_p6",
+  "source_data": "fig_paper_layered_v2.py \u2014 alpha family, Amari vs canonical, peak 0.6.",
   "formats": [
     "png",
     "pdf"
