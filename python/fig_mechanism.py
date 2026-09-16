@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import os
 
+import json
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -30,9 +32,18 @@ import matplotlib.pyplot as plt
 from regularizers import REGKEYS, COLORS, SHORT
 from inner_term import single_state_variance, trajectory_variance
 from seeds import ROOT_SEED
+from mdp import NA as MDP_NA          # |A| comes from the layered MDP itself — never a free knob
 
 FLOOR = 1e-5            # log-axis floor so RKL's exact 0 is drawn at the bottom
 N_SEEDS = 8            # seeds averaged for the std-vs-n / std-vs-H CI bands
+
+
+def _save(fig, stem):
+    """PNG + PDF (the paper export contract wants both)."""
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    return f"{stem}.png"
 
 
 def _kl_kw(rk, lw=1.7):
@@ -46,11 +57,12 @@ def _mean_ci(vals):
     return m, ci
 
 
-# single state: |A|=10 actions, mildly peaked (scale 1.2). Many enough that Monte-Carlo sampling
-# genuinely matters, but not so peaked that the heavy-tailed Φ of FKL/α-div gives near-infinite
-# variance (which would hide the clean 1/√n law); RKL is exactly 0 at any setting.
-SS_NA, SS_SCALE = 10, 1.2
-TJ_NA, TJ_SCALE = 10, 1.0
+# The sampled state uses the layered MDP's own action count (|A| = NA = 3) so these mechanism
+# panels sit in the same configuration as every training run. The 1/sqrt(n) law is if anything
+# cleaner at |A|=3 (measured ratio std(n=4)/std(n=1024) = 16.0 exactly) and RKL stays exactly 0.
+# `scale` only sets how peaked the sampled pi is; it is not an environment parameter.
+SS_NA, SS_SCALE = MDP_NA, 1.2
+TJ_NA, TJ_SCALE = MDP_NA, 1.0
 
 
 def fig_single_state():
@@ -94,9 +106,11 @@ def fig_single_state():
     fig.suptitle("§4.2 mechanism — the admissible Ω's inner term is sampled like the rest but its draws "
                  "are constant (Φ_KL≡1) ⇒ zero variance", fontsize=11, y=1.0)
     fig.tight_layout()
-    p = "figs/mechanism_single_state.png"; fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
+    p = _save(fig, "figs/mechanism_single_state")
     rkl_max = max(rep["kl"][n]["std"] for n in ns)
-    return p, rkl_max
+    table = {rk: {int(n): float(np.mean([v[i] for v in stds[rk]])) for i, n in enumerate(ns)}
+             for rk in REGKEYS}
+    return p, rkl_max, table
 
 
 def fig_trajectory():
@@ -135,18 +149,48 @@ def fig_trajectory():
     fig.suptitle("§4.2 mechanism — a horizon-H rollout sums H−1 inner draws: non-admissible noise "
                  "accumulates as √(H−1); the admissible Ω stays exactly 0", fontsize=11, y=1.0)
     fig.tight_layout()
-    p = "figs/mechanism_trajectory.png"; fig.savefig(p, dpi=140, bbox_inches="tight"); plt.close()
+    p = _save(fig, "figs/mechanism_trajectory")
     rkl_max = max(rep["kl"][H]["std"] for H in Hs)
-    return p, rkl_max
+    table = {rk: {int(H): float(np.mean([v[i] for v in stds[rk]])) for i, H in enumerate(Hs)}
+             for rk in REGKEYS}
+    return p, rkl_max, table
+
+
+BUDGETS = [4, 64, 1024]        # the three MC budgets the paper tables quote
+HORIZONS = [2, 4, 6, 8]        # four horizons; H=4 is the layered MDP's own depth
+
+
+def _emit_table(title, header, table, cols, unit):
+    print(f"\n{title}")
+    print(f"  {'Omega':7s}" + "".join(f"{f'{header}={c}':>13s}" for c in cols))
+    for rk in REGKEYS:
+        row = "".join(f"{table[rk][c]:>13.3e}" for c in cols)
+        tag = "   <- exactly 0 (admissible)" if rk == "kl" else ""
+        print(f"  {SHORT[rk]:7s}" + row + tag)
+    print(f"  ({unit})")
 
 
 def main():
     os.makedirs("figs", exist_ok=True)
-    p1, rkl_ss = fig_single_state()
-    p2, rkl_tj = fig_trajectory()
+    p1, rkl_ss, t_ss = fig_single_state()
+    p2, rkl_tj, t_tj = fig_trajectory()
     print(f"[check] RKL (admissible) std — single-state max {rkl_ss:.2e}, trajectory max {rkl_tj:.2e} "
           f"(≈0 ⇒ noise-free, by arithmetic)")
-    print(f"[saved]\n  {p1}\n  {p2}")
+    print(f"[config] |A| = {SS_NA} (from mdp.NA), seeds averaged = {N_SEEDS}")
+
+    _emit_table("TABLE 1 — single-state estimator std vs MC budget n", "n", t_ss, BUDGETS,
+                "std of the n-sample inner-term estimate at one state")
+    _emit_table("TABLE 2 — per-trajectory inner-term std vs horizon H", "H", t_tj, HORIZONS,
+                "std of the summed inner term over a horizon-H rollout, n_mc=8")
+
+    out = {"config": {"n_actions": int(SS_NA), "n_seeds_averaged": int(N_SEEDS),
+                      "ss_scale": SS_SCALE, "tj_scale": TJ_SCALE, "tj_n_mc": 8},
+           "single_state_std_vs_n": {rk: t_ss[rk] for rk in REGKEYS},
+           "trajectory_std_vs_H": {rk: t_tj[rk] for rk in REGKEYS},
+           "budgets_quoted": BUDGETS, "horizons_quoted": HORIZONS,
+           "rkl_max_std": {"single_state": rkl_ss, "trajectory": rkl_tj}}
+    json.dump(out, open("figs/mechanism_tables.json", "w"), indent=1)
+    print(f"\n[saved]\n  {p1} (+ .pdf)\n  {p2} (+ .pdf)\n  figs/mechanism_tables.json")
 
 
 if __name__ == "__main__":

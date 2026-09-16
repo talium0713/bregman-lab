@@ -12,6 +12,22 @@ from datetime import datetime, timezone
 
 OUT = "figure4overleaf"
 
+# The layered-MDP configuration the paper quotes verbatim. Asserted against
+# data/tabular/run_*/results.json by fig_paper_layered.check_env() before any t0x figure is drawn.
+LAYERED_CONFIG = {
+    "env": {"depth": 4, "SN": 3, "NA": 3, "eps": 0.2, "gamma": 0.9,
+            "reward": "Uniform(-0.8,0.8) on every (layer, state, action)",
+            "transitions": "depend on the action only; s'=a w.p. 1-eps, else uniform over the rest"},
+    "start": "uniform over the three layer-0 states",
+    "pi_ref": "uniform at every state (t05 overrides this with a peaked reference)",
+    "oracle": "Bradley-Terry on gamma-discounted trajectory return differences, temperature 1",
+    "runs": "100 independently drawn MDPs, one training seed each",
+    "weight": "calibrated per (regularizer, target peak) by bisection, not a fixed beta",
+    "adiv": "alpha = 0.5 (DEFAULT_ADIV_A)",
+    "roster": ["RKL", "alpha-div", "FKL", "JS", "squared Hellinger", "Pearson chi^2",
+               "squared Euclidean"],
+}
+
 # paper name -> (source stem without extension, source-data provenance note)
 FIGS = {
     "f01_toy_scaling":             ("python/figs/toy_Asize_ablation",
@@ -36,6 +52,30 @@ FIGS = {
                                     "RKL has no Amari cell (u·log u is already canonical) and euc no canonical "
                                     "cell (not an f-divergence). RKL's canonical arm equals its exact arm to "
                                     "machine precision — the sample-free property."),
+    # ── layered-MDP regeneration of the paper's legacy tree figures (round 0916-B, option c) ──
+    "t01_single_state_variance":   ("python/figs/mechanism_single_state",
+                                    "fig_mechanism.py -> fig_single_state — std of the n-sample inner-term "
+                                    "estimator vs n, per regularizer; RKL exactly 0 (Phi_KL == 1)"),
+    "t02_trajectory_compounding":  ("python/figs/mechanism_trajectory",
+                                    "fig_mechanism.py -> fig_trajectory — per-trajectory std of the summed "
+                                    "inner term vs horizon H, sqrt(H-1) growth; RKL exactly 0"),
+    "t03_recovery_vs_nmc":         ("python/figs/t03_recovery_vs_nmc",
+                                    "fig_paper_layered.py -> fig_recovery_vs_nmc - data/tabular/"
+                                    "run_20260629_182331 (100 MDPs, peak 0.7); on-policy and off-policy "
+                                    "panels, +-95% CI. n_mc does not enter the off-policy estimator."),
+    "t04_state_anatomy":           ("python/figs/t04_state_anatomy",
+                                    "fig_paper_layered.py -> fig_state_anatomy - recovered policy vs target "
+                                    "at each of the twelve (layer, state) cells [design option 1], plus the "
+                                    "per-cell TV the gap integrates over. Off-policy, n_mc=1, MDP 0."),
+    "t05_peaked_reference":        ("python/figs/t05_peaked_reference",
+                                    "run_t05_peaked.py + fig_paper_layered_t05t06.py - the t03 curves under a "
+                                    "peaked reference pi_ref=(0.6,0.2,0.2); behaviour policy stays uniform"),
+    "t06_alpha_sweep":             ("python/figs/t06_alpha_sweep",
+                                    "run_t06_alpha_nmc.py + fig_paper_layered_t05t06.py - policy gap along the "
+                                    "alpha family vs the MC budget; temperature pinned to RKL@peak 0.7"),
+    "t07_calibration":             ("python/figs/t07_calibration",
+                                    "fig_paper_layered.py -> fig_calibration — policy peak vs the "
+                                    "regularization weight with the calibrated anchors (MDP 0)"),
     "fL1_arena_winrate":           ("llm/results/stageB_divergence_wr",
                                     "fig_permissibility_wr.py · llm/results/bench/arena_v01/divergence_wr.json"),
     "fL2_head_to_head":            ("llm/results/stageB_divergence_h2h",
@@ -77,9 +117,11 @@ def main():
             skipped.append((name, stem)); continue
         for e in exts:
             shutil.copyfile(f"{stem}.{e}", f"{OUT}/{name}.{e}")
-        json.dump({"paper_name": name, "source_figure": stem, "source_data": note,
-                   "formats": exts, "git_commit": commit, "exported_at": now},
-                  open(f"{OUT}/{name}.json", "w"), indent=2)
+        side = {"paper_name": name, "source_figure": stem, "source_data": note,
+                "formats": exts, "git_commit": commit, "exported_at": now}
+        if name.startswith("t0"):                 # layered regeneration: record the full config
+            side["config"] = LAYERED_CONFIG
+        json.dump(side, open(f"{OUT}/{name}.json", "w"), indent=2)
         done.append((name, "+".join(exts)))
     print(f"exported {len(done)} figures -> {OUT}/  (commit {commit[:8]})")
     for n, e in done:
