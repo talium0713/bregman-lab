@@ -1,0 +1,60 @@
+#!/bin/bash
+# 8B LoRA for the five NON-RKL divergences, Amari vs canonical, seeds 0 and 1 — on L40S.
+#
+# RKL is deliberately excluded: 8B LoRA RKL seed 0 is already done here (canonical 57.9%
+# [54.2,61.5]) and a collaborator is running its seeds 1 and 2. This job fills in FKL, adiv, JS,
+# Hellinger and chi2 so the 8B LoRA block covers all six divergences rather than just the one.
+#
+# WHY IT MATTERS. At 8B, full fine-tuning and LoRA disagree sharply on RKL: canonical 74.2% against
+# 57.9%, non-overlapping intervals, with the cause identified as full-FT Amari failing to terminate
+# (80.0% of answers at the token cap against 7.8% under LoRA). Whether that split is peculiar to RKL
+# or holds across divergences is currently unknown, because 8B full-FT itself only ever ran RKL.
+#
+# WHY L40S. 8B LoRA peaks at 28.2 GB, which fits a 48 GB card, and the h100 queue has not moved a
+# single 4B job in six days. LoRA is what makes this possible at all: the adapter replaces the
+# replicated frozen reference, which is what forced 8B full-FT onto four H100s.
+#
+# COST. Measured 77.6 s/step on L40S, so 1910 steps is ~41.4 h per run. Twenty runs at %3 is about
+# seven batches, i.e. roughly twelve days of wall clock. --time is 60 h (3-day tier); with
+# --save-adapter-every 200 an overrun costs one interval rather than the run.
+#
+#   array index = seed*10 + spec, spec = (rkl|adiv|js|hel|chi2) x (amari|canon)
+# Out: $OUT_DIR/stageB_lora8b_{div}_{norm}_bdpo_token_s{0,1}
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=lora8ball
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-19%3
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=60:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"
+
+SPECS=(rkl:amari rkl:canon adiv:amari adiv:canon js:amari js:canon hel:amari hel:canon chi2:amari chi2:canon)
+SEED=$((SLURM_ARRAY_TASK_ID / 10)); SPEC="${SPECS[$((SLURM_ARRAY_TASK_ID % 10))]}"
+DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
+
+echo "=== 8B LoRA [$DIV, norm=$NORM, seed=$SEED] 1xL40S (2ep) on $(hostname) | $(date) ==="; nvidia-smi
+python stage_b_train.py \
+  --ref Qwen/Qwen3-8B-Base --policy Qwen/Qwen3-8B-Base --init-noise 0.01 \
+  --lora-r 128 --lora-alpha 128 --lora-dropout 0.05 --save-adapter-every 200 \
+  --data data/uf_pairs_train_full.jsonl --eval-data data/uf_pairs_test.jsonl \
+  --div "$DIV" --norm "$NORM" --inner sample --step-mode token \
+  --beta 0.1 --lr 5e-6 --lr-schedule linear --warmup-ratio 0.05 --weight-decay 0.01 --adam-beta2 0.999 \
+  --epochs 2 --grad-accum 64 --grad-clip 1.0 --max-len 1024 --clamp 15 \
+  --eval-n 256 --log-every 25 --eval-every 100 --seed "$SEED" --save-policy \
+  --out "$OUT_DIR/stageB_lora8b_${DIV}_${NORM}_bdpo_token_s${SEED}"
+echo "=== done 8B LoRA [$DIV, norm=$NORM, seed=$SEED] | $(date) ==="
