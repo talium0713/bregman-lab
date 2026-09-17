@@ -20,7 +20,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS, SHORT, COLORS, make_canonical
+from regularizers import REGKEYS, SHORT, COLORS, make_canonical, SHORT_TEX
 
 NA = 3                                   # actions per state (matches the tabular MDP, mdp.py)
 K = 400                                  # random (π_ref, target) draws to average |bias| over
@@ -57,7 +57,7 @@ def render():
         if rk == "kl":
             continue
         ax.plot(DRIFTS, np.maximum(absb[rk], floor), color=COLORS[rk], lw=1.7,
-                marker="o", ms=3, label=SHORT[rk], zorder=3)
+                marker="o", ms=3, label=SHORT_TEX[rk], zorder=3)
     ax.plot(DRIFTS, np.full_like(DRIFTS, floor), color=COLORS["kl"], lw=3.2, zorder=6,
             label=r"RKL  ($|\mathrm{bias}|\equiv 0$, permissible)")
     ax.annotate(r"$\equiv 0$ (permissible)", xy=(0.62, floor), xytext=(0.30, floor * 3.0),

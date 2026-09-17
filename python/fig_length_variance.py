@@ -27,7 +27,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REG, COLORS, SHORT
+from regularizers import REG, COLORS, SHORT, SHORT_TEX
 
 FIGDIR = os.path.join(os.path.dirname(__file__), "figs")
 KEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2"]
@@ -65,7 +65,7 @@ def main():
     for k in KEYS:
         emp = [max(std_d(pools[k], T, T, 120000, rng), FLOOR) for T in Ts]
         axL.plot(Ts, emp, "o", color=COLORS[k], ms=5,
-                 zorder=9 if k == "kl" else 4, label=SHORT[k])
+                 zorder=9 if k == "kl" else 4, label=SHORT_TEX[k])
         th = np.maximum(sigma[k] * np.sqrt(2 * (np.array(Ts) - 1)), FLOOR)
         axL.plot(Ts, th, "-", color=COLORS[k], lw=2.6 if k == "kl" else 1.5,
                  alpha=0.9, zorder=8 if k == "kl" else 3)

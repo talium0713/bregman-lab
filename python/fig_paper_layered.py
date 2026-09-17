@@ -20,8 +20,9 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.transforms import blended_transform_factory
 
-from regularizers import REGKEYS, COLORS, SHORT
+from regularizers import REGKEYS, COLORS, SHORT, SHORT_TEX
 from mdp import SN, NA, new_rewards
 from seeds import ROOT_SEED, rng_for
 from experiments import calibrate, peakiness
@@ -74,11 +75,11 @@ def fig_recovery_vs_nmc(agg_p, nmc, n_mdp):
             if flat:
                 v, ci = agg_p[reg][rk][avail[0]][0], agg_p[reg][rk][avail[0]][1]
                 c = np.full(len(nmc), v); ci = np.full(len(nmc), ci)
-                ax.plot(nmc, c, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+                ax.plot(nmc, c, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
             else:
                 c = np.array([agg_p[reg][rk][n][0] for n in nmc])
                 ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
-                ax.plot(nmc, c, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+                ax.plot(nmc, c, marker="o", ms=4, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
             ax.fill_between(nmc, c - ci, c + ci, color=COLORS[rk], alpha=0.13, zorder=2)
             ymax = max(ymax, float((c + ci).max()))
         if flat:
@@ -135,7 +136,7 @@ def fig_state_anatomy(results, peak, regime="off", nm=1):
             axL.axvline(l * block - 0.5, color="#e6e6e6", lw=0.7)
         axL.set_ylim(0, 1.05); axL.set_xticks(centers)
         axL.set_xticklabels([rf"$\ell_{l}$" for l in range(DEPTH)], fontsize=7.5)
-        axL.set_ylabel(SHORT[rk], color=COLORS[rk], fontsize=10)
+        axL.set_ylabel(SHORT_TEX[rk], color=COLORS[rk], fontsize=10)
 
         # right: the per-cell TV the gap integrates over (12 cells)
         tv = 0.5 * np.abs(pol - star).sum(-1)                      # (DEPTH, SN)
@@ -164,17 +165,24 @@ def fig_state_anatomy(results, peak, regime="off", nm=1):
 # ─────────────────────────────────────────────────────────────────────────────
 # t07 — calibration: peak vs the regularization weight + the calibrated-weight table
 # ─────────────────────────────────────────────────────────────────────────────
+def _tr(ax):
+    """x in axes fraction, y in data coords."""
+    return blended_transform_factory(ax.transAxes, ax.transData)
+
+
 def fig_calibration(results_by_peak, targets):
     rewards = new_rewards(DEPTH, rng_for(ROOT_SEED, "reward", 0))     # MDP 0, the swept one
     grid = np.logspace(np.log10(0.02), np.log10(40), 60)
     fig, ax = plt.subplots(figsize=(7.8, 4.7))
     for rk in REGKEYS:
         pk = [peakiness(rk, rewards, a, GAMMA, EPS) for a in grid]
-        ax.plot(grid, pk, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk, 1.6))
+        ax.plot(grid, pk, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk, 1.6))
     for t in targets:
         al = calibrate(rewards, t, GAMMA, EPS)
         ax.axhline(t, color="#888", ls="--", lw=0.9)
-        ax.text(grid[-1], t, f" target {t}", va="center", fontsize=8, color="#555")
+        # sit just above each dashed line and inside the axes, not spilling off the right edge
+        ax.text(0.012, t, f"target {t}", transform=_tr(ax), va="bottom", ha="left",
+                fontsize=8, color="#555")
         for rk in REGKEYS:
             ax.scatter([al[rk]], [t], color=COLORS[rk], s=30, zorder=9 if rk == "kl" else 5,
                        edgecolor="#222", linewidth=0.4)
@@ -182,8 +190,6 @@ def fig_calibration(results_by_peak, targets):
     ax.set_xlabel(r"regularization weight  $\alpha$   (calibrated per $\Omega$, not fixed)")
     ax.set_ylabel(r"policy peak   $\mathrm{mean}_s \max_a \pi^\star(a|s)$")
     ax.grid(alpha=0.2); ax.legend(fontsize=8, ncol=2, loc="upper right")
-    ax.set_title("Calibration — every $\\Omega$ is matched at equal policy sharpness (MDP 0; "
-                 "dots = calibrated anchors)", fontsize=10)
     fig.tight_layout()
     p = _save(fig, "figs/t07_calibration")
 

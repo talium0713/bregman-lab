@@ -25,7 +25,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REG, REGKEYS, is_admissible, make_adiv, make_canonical, make_standard, COLORS, SHORT
+from regularizers import REG, REGKEYS, is_admissible, make_adiv, make_canonical, make_standard, COLORS, SHORT, SHORT_TEX
 from mdp import solve_dp, uniform_pis, new_rewards, state_occupancy, SN, NA
 from inner_term import C_exact, c_violation, single_state_variance, trajectory_variance
 from dpo import TrainConfig, make_dataset, make_dataset_policy, train_one
@@ -358,7 +358,7 @@ def fig_policy_3x7(rewards, alphas, pols, gaps, peak, sfx):
             ax.set_xticks(centers)
             if r == len(REGKEYS) - 1:
                 ax.set_xticklabels([f"\u2113{l}" for l in range(DEPTH)], fontsize=7)
-        axes[r, 0].set_ylabel(SHORT[rk], color=COLORS[rk], fontsize=10)
+        axes[r, 0].set_ylabel(SHORT_TEX[rk], color=COLORS[rk], fontsize=10)
     axes[0, 0].set_title("exact inner term (all $a\'$)", fontsize=10)
     axes[0, 1].set_title(r"off-policy, Amari ($f'(1)=0$)", fontsize=10)
     axes[0, 2].set_title(r"off-policy, canonical ($f'(1)=f''(1)$)", fontsize=10)

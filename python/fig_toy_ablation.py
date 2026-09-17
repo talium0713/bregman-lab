@@ -24,7 +24,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-from regularizers import REG, COLORS, SHORT
+from regularizers import REG, COLORS, SHORT, SHORT_TEX
 
 FIGDIR = os.path.join(os.path.dirname(__file__), "figs")
 KEYS = ["kl", "adiv", "rkl", "js", "hel", "chi2"]     # f-divergences (skip euc)
@@ -63,7 +63,7 @@ def main():
     for k in KEYS:                                    # Hel & χ² coincide at small u (both f(0⁺)=1 ⇒
         phi = np.atleast_1d(REG[k].Phi(u)) * np.ones_like(u)   # Φ≈−1/u); χ²'s green vs Hel's blue keeps
         axL.plot(u, np.abs(phi), color=COLORS[k], lw=3.2 if k == "kl" else 1.9,   # them apart
-                 zorder=8 if k == "kl" else 3, label=SHORT[k])
+                 zorder=8 if k == "kl" else 3, label=SHORT_TEX[k])
     axL.axhline(1.0, color="0.6", ls=":", lw=1, zorder=1)
     axL.set_xscale("log"); axL.set_yscale("log")
     axL.set_xlabel(r"$u = \pi_\theta/\pi_{\mathrm{ref}}$  (small $u$ = off-policy)")
@@ -88,7 +88,7 @@ def main():
     axRt.set_xscale("log"); axRt.set_yscale("log"); axRt.set_ylim(2e4, 1e8)
     # legend lists all 6 (incl. RKL, whose flat line lives in the bottom sub-panel below)
     handles = [Line2D([0], [0], color=COLORS[k], lw=3.0 if k == "kl" else 1.9,
-                      marker="o", ms=4, label=SHORT[k]) for k in KEYS]
+                      marker="o", ms=4, label=SHORT_TEX[k]) for k in KEYS]
     axRt.legend(handles=handles, ncol=3, fontsize=8, framealpha=0.9, loc="upper left")
     axRt.set_title(r"off-policy noise $\mathrm{std}_{a\sim\pi_{\mathrm{ref}}}[\Psi(u_a)]$ vs |A|  (median ± IQR)")
     axRt.text(2.6, 2.4e4, "|A|=3 (tabular)", fontsize=7.5, color="0.45", rotation=90, va="bottom", ha="center")

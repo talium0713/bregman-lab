@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS, COLORS, SHORT
+from regularizers import REGKEYS, COLORS, SHORT, SHORT_TEX
 
 
 def _kl_kw(rk, lw=1.7):
@@ -62,7 +62,7 @@ def fig_for_nmc(agg, Hs, nm):
                 continue
             hs = [H for H in Hs if H in d[rk]]
             mu = np.array([d[rk][H][0] for H in hs]); ci = np.array([d[rk][H][1] for H in hs])
-            ax.plot(hs, mu, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+            ax.plot(hs, mu, marker="o", ms=4, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
             ax.fill_between(hs, mu - ci, mu + ci, color=COLORS[rk], alpha=0.12, zorder=2)
             ymax = max(ymax, (mu + ci).max())
         ax.set_xlabel("horizon  H  (layers)"); ax.set_title(titles[reg], fontsize=10)

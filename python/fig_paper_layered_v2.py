@@ -23,12 +23,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS, COLORS, SHORT
+from regularizers import REGKEYS, COLORS, SHORT, SHORT_TEX
 from mdp import SN, NA, solve_dp, uniform_pis
 
 DEPTH = 4
 GAMMA, EPS = 0.9, 0.2
-ARMS = [("std", r"Amari   $f'(1)=0$"), ("canon", r"canonical   $f'(1)=f''(1)$")]
+ARMS = [("std", r"Amari   $f'(1)=0$"), ("canon", r"Canonical   $f'(1)=f''(1)$")]
 C_AM, C_CA = "#6b7280", "#b0224b"          # normalization colours, shared with fL3
 
 
@@ -78,7 +78,7 @@ def fig_anatomy(path, suffix):
             ax.set_xticks(centers)
             if r == len(REGKEYS) - 1:
                 ax.set_xticklabels([rf"$\ell_{l}$" for l in range(DEPTH)], fontsize=7)
-        axes[r, 0].set_ylabel(SHORT[rk], color=COLORS[rk], fontsize=10)
+        axes[r, 0].set_ylabel(SHORT_TEX[rk], color=COLORS[rk], fontsize=10)
         axes[r, 0].set_ylim(0, 1.05)
     for c, (_, lab) in enumerate(ARMS):
         axes[0, c].set_title(lab, fontsize=10)
@@ -108,12 +108,12 @@ def _adiv_peaks():
     return out
 
 
-def _draw_alpha(ax, pk, p_am, p_ca, legend):
+def _draw_alpha(ax, pk, p_am, p_ca, legend, annotate=True):
     _, A, am = _agg_adiv(p_am)
     _, _, ca = _agg_adiv(p_ca)
     keep = [a for a in A if not (0.9 < a < 1.1 and abs(a - 1.0) > 1e-9)]   # drop dense probes
     Ak = np.array(keep)
-    for d, col, lab in ((am, C_AM, r"Amari  $f'(1)=0$"), (ca, C_CA, r"canonical  $f'(1)=f''(1)$")):
+    for d, col, lab in ((am, C_AM, r"Amari  $f'(1)=0$"), (ca, C_CA, r"Canonical  $f'(1)=f''(1)$")):
         m = np.array([d[a][0] for a in keep]); ci = np.array([d[a][1] for a in keep])
         ax.plot(Ak, m, marker="o", ms=3.5, lw=1.8, color=col, label=lab)
         ax.fill_between(Ak, m - ci, m + ci, color=col, alpha=0.15)
@@ -122,7 +122,22 @@ def _draw_alpha(ax, pk, p_am, p_ca, legend):
     ax.set_xlabel(r"$\alpha$"); ax.grid(alpha=0.2)
     if legend:
         ax.legend(fontsize=8, loc="lower left")
-    return {"amari_at_1": am[1.0][0], "canon_at_1": ca[1.0][0]}
+    y_am, y_ca = am[1.0][0], ca[1.0][0]
+    if annotate:
+        # alpha=1 is the same divergence on both curves; only the generator's normalization differs,
+        # so the vertical distance there IS the regularity gap.
+        acc = COLORS["kl"]
+        ax.scatter([1.0, 1.0], [y_am, y_ca], s=170, facecolors="none", edgecolors=acc,
+                   linewidths=2.0, zorder=9)
+        ax.annotate("", xy=(1.0, y_ca), xytext=(1.0, y_am), zorder=8,
+                    arrowprops=dict(arrowstyle="<->", color=acc, lw=2.0))
+        ax.text(0.96, (y_am + y_ca) / 2, "regularity\ngap", ha="right", va="center",
+                fontsize=9, fontweight="bold", color=acc)
+        ax.annotate(r"$f(u)=u\ln u-(u-1)$", xy=(1.0, y_am), xytext=(1.05, y_am + 0.022),
+                    fontsize=9, color=acc, ha="left", va="bottom")
+        ax.annotate(r"$f(u)=u\ln u$", xy=(1.0, y_ca), xytext=(1.05, y_ca - 0.022),
+                    fontsize=9, color=acc, ha="left", va="top")
+    return {"amari_at_1": y_am, "canon_at_1": y_ca}
 
 
 def fig_alpha():
@@ -132,17 +147,17 @@ def fig_alpha():
         return [], {}
     made, tab = [], {}
     for pk, p_am, p_ca in peaks:                              # standalone, one peak each
-        fig, ax = plt.subplots(figsize=(5.0, 4.2))
+        fig, ax = plt.subplots(figsize=(6.2, 4.6))
         tab[pk / 100] = _draw_alpha(ax, pk, p_am, p_ca, legend=True)
-        ax.set_ylabel(r"$\Delta_\pi$ = mean $\mathrm{TV}(\pi_\theta\,\|\,\pi^\star)$")
-        ax.set_ylim(0, None)
+        ax.set_ylabel(r"recovery gap  $\Delta_\pi$ = mean $\mathrm{TV}(\pi_\theta\,\|\,\pi^\star)$")
+        ax.set_ylim(0, max(ax.get_ylim()[1], tab[pk / 100]["amari_at_1"] + 0.11))
         fig.tight_layout()
         made.append(_save(fig, f"figs/t06_alpha_sweep_p{pk // 10}"))
     fig, axes = plt.subplots(1, len(peaks), figsize=(4.6 * len(peaks), 4.2), sharey=True)
     axes = np.atleast_1d(axes)
     for i, (ax, (pk, p_am, p_ca)) in enumerate(zip(axes, peaks)):
-        _draw_alpha(ax, pk, p_am, p_ca, legend=(i == 0))
-    axes[0].set_ylabel(r"$\Delta_\pi$ = mean $\mathrm{TV}(\pi_\theta\,\|\,\pi^\star)$")
+        _draw_alpha(ax, pk, p_am, p_ca, legend=(i == 0), annotate=False)
+    axes[0].set_ylabel(r"recovery gap  $\Delta_\pi$ = mean $\mathrm{TV}(\pi_\theta\,\|\,\pi^\star)$")
     axes[0].set_ylim(0, None)
     fig.tight_layout()
     made.append(_save(fig, "figs/t06_alpha_sweep"))

@@ -167,6 +167,11 @@ COLORS = {"kl": "#EE008D", "adiv": "#BE3EC5", "rkl": "#4065E9", "js": "#037CF2",
 SHORT = {"kl": "RKL", "adiv": "α-div", "rkl": "FKL", "js": "JS",
          "hel": "Hel", "chi2": "χ²", "euc": "Euc"}
 
+# Same roster, but with the symbols as mathtext so figures render them through LaTeX instead of
+# relying on the font's unicode glyphs. SHORT stays plain for console tables and filenames.
+SHORT_TEX = {"kl": "RKL", "adiv": r"$\alpha$-div", "rkl": "FKL", "js": "JS",
+             "hel": "Hel", "chi2": r"$\chi^2$", "euc": "Euc"}
+
 # ── figure-label constants (paper terminology; Notion §8 B2–B4 / §9 C0–C1) ─────────────
 # The results.json regime KEYS stay 'off'/'off_on'/'on' (don't re-parse old runs); these dicts map
 # key → the LABEL a figure prints, and MUST match preview_cth.tex Appendix C.1 / Table 2 exactly.

@@ -17,7 +17,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS, COLORS, SHORT
+from regularizers import REGKEYS, COLORS, SHORT, SHORT_TEX
 
 T05 = "data/tabular/run_t05_peaked.json"
 T06 = "data/tabular/run_t06_alpha_nmc.json"
@@ -51,11 +51,11 @@ def fig_t05():
             if flat:
                 m, ci = _mean_ci(d["off"][rk])
                 c = np.full(len(nmc), m); cib = np.full(len(nmc), ci)
-                ax.plot(nmc, c, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+                ax.plot(nmc, c, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
             else:
                 stats = [_mean_ci(d["on"][str(n)][rk]) for n in nmc]
                 c = np.array([s[0] for s in stats]); cib = np.array([s[1] for s in stats])
-                ax.plot(nmc, c, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+                ax.plot(nmc, c, marker="o", ms=4, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
             ax.fill_between(nmc, c - cib, c + cib, color=COLORS[rk], alpha=0.13, zorder=2)
             ymax = max(ymax, float((c + cib).max()))
         ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)

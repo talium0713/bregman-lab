@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from regularizers import (REGKEYS as _REGKEYS, COLORS as _COLORS, SHORT as _SHORT,
-                          REGIME_LABEL, REGIME_SUB, REGIME_ORDER)
+                          SHORT_TEX as _SHORT_TEX, REGIME_LABEL, REGIME_SUB, REGIME_ORDER)
 from mdp import new_rewards
 from experiments import peakiness, calibrate
 from seeds import rng_for
@@ -132,7 +132,7 @@ def fig_headline(man, agg_p, peak, nmc):
         for rk in REGKEYS:
             cs = np.array([agg_p[reg][rk][n][0] for n in nmc])
             ci = np.array([agg_p[reg][rk][n][1] for n in nmc])
-            ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+            ax.plot(nmc, cs, marker="o", ms=4, color=COLORS[rk], label=_SHORT_TEX[rk], **_kl_kw(rk))
             ax.fill_between(nmc, cs - ci, cs + ci, color=COLORS[rk], alpha=0.13, zorder=2)
             ymax = max(ymax, (cs + ci).max())
         ax.set_xscale("log", base=2); ax.set_xticks(nmc); ax.set_xticklabels(nmc, fontsize=8)
@@ -177,7 +177,7 @@ def fig_headline(man, agg_p, peak, nmc):
                        facecolor=to_rgba(COLORS[rk], face), hatch=hatch,
                        edgecolor=ec, linewidth=lw, zorder=3)
                 ymax = max(ymax, m + c)
-        ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS], fontsize=8)
+        ax.set_xticks(x); ax.set_xticklabels([_SHORT_TEX[rk] for rk in REGKEYS], fontsize=8)
         ax.set_title("exact vs off-policy", fontsize=10); ax.grid(alpha=0.2, axis="y")
         ax.legend(handles=[
             Patch(facecolor=to_rgba("#888", 0.28), hatch="///", edgecolor="#555",
@@ -209,7 +209,7 @@ def fig_offpolicy_peaks(man, agg, peaks):
                    color=COLORS[rk], alpha=0.45 + 0.55 * j / max(len(peaks) - 1, 1),
                    edgecolor="#111" if rk == "kl" else "none", linewidth=1.2 if rk == "kl" else 0,
                    label=f"peak {peak}" if i == 0 else None)
-    ax.set_xticks(x); ax.set_xticklabels([SHORT[rk] for rk in REGKEYS])
+    ax.set_xticks(x); ax.set_xticklabels([_SHORT_TEX[rk] for rk in REGKEYS])
     ax.set_ylabel("off-policy gap  Δπ  (mean TV vs π*)")   # caption: {design} · ±95% CI · RKL lowest at every peak
     ax.grid(alpha=0.2, axis="y"); ax.legend(fontsize=8, title="bar shade = peak")
     fig.tight_layout()
@@ -229,7 +229,7 @@ def fig_alpha_sweep(man, peaks):
     fig, ax = plt.subplots(figsize=(7.6, 4.6))
     for rk in REGKEYS:
         pk = [peakiness(rk, rew, a, gamma, eps) for a in grid]
-        ax.plot(grid, pk, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk, 1.6))
+        ax.plot(grid, pk, color=COLORS[rk], label=_SHORT_TEX[rk], **_kl_kw(rk, 1.6))
     for peak in peaks:
         al = calibrate(rew, peak, gamma, eps)
         ax.axhline(peak, color="#888", ls="--", lw=0.9)

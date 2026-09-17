@@ -62,6 +62,8 @@ FIGS = {
                                     "fig_mechanism.py — the same 2x2 split for the trajectory sum; "
                                     "non-admissible spread grows as sqrt(H-1) in both rows, canonical RKL "
                                     "stays exactly 0."),
+    "t04_state_anatomy_p6":        ("python/figs/t04_state_anatomy_p6",
+                                    "fig_paper_layered_v2.py — the same 2x7 at peak 0.6 (mildest drift)."),
     "t04_state_anatomy_p7":        ("python/figs/t04_state_anatomy_p7",
                                     "fig_paper_layered_v2.py — 2x7 at peak 0.7: rows are the seven "
                                     "regularizers, columns Amari vs canonical; pi* (dashed, recomputed "
@@ -77,6 +79,8 @@ FIGS = {
                                     "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.7."),
     "t06_alpha_sweep_p8":          ("python/figs/t06_alpha_sweep_p8",
                                     "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.8."),
+    "t06_alpha_sweep_p9":          ("python/figs/t06_alpha_sweep_p9",
+                                    "fig_paper_layered_v2.py — alpha family, Amari vs canonical, peak 0.9."),
     "t06_alpha_sweep":             ("python/figs/t06_alpha_sweep",
                                     "fig_paper_layered_v2.py — the three peaks side by side, for the "
                                     "main body. Same data as the three standalone files."),

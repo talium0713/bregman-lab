@@ -23,7 +23,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from regularizers import REGKEYS, COLORS, SHORT
+from regularizers import REGKEYS, COLORS, SHORT, SHORT_TEX
 
 DEFAULT_EPS_RUN = "data/tabular/run_eps_ablation/results.json"
 DEFAULT_HEADLINE = "data/tabular/run_20260629_182331/results.json"   # supplies the ε=0.2 point
@@ -67,7 +67,7 @@ def _plot_eps(ax, agg, reg, nm, eps_mark=0.2):
         d = agg[reg][rk][nm]
         xs = [e for e in epss if e in d]
         mu = np.array([d[e][0] for e in xs]); ci = np.array([d[e][1] for e in xs])
-        ax.plot(xs, mu, marker="o", ms=4, color=COLORS[rk], label=SHORT[rk], **_kl_kw(rk))
+        ax.plot(xs, mu, marker="o", ms=4, color=COLORS[rk], label=SHORT_TEX[rk], **_kl_kw(rk))
         ax.fill_between(xs, mu - ci, mu + ci, color=COLORS[rk], alpha=0.13, zorder=2)
     ax.axvline(eps_mark, color="#999", ls="--", lw=0.9)
     ax.set_xlabel("transition noise  ε"); ax.grid(alpha=0.2)
