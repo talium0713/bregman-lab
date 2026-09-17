@@ -1,9 +1,10 @@
 #!/bin/bash
 # 8B LoRA for the five NON-RKL divergences, Amari vs canonical, seeds 0 and 1 — on L40S.
 #
-# RKL is deliberately excluded: 8B LoRA RKL seed 0 is already done here (canonical 57.9%
+# Seed 2 only, and RKL excluded: 8B LoRA RKL seed 0 is already done here (canonical 57.9%
 # [54.2,61.5]) and a collaborator is running its seeds 1 and 2. This job fills in FKL, adiv, JS,
-# Hellinger and chi2 so the 8B LoRA block covers all six divergences rather than just the one.
+# Hellinger and chi2 at seed 2 so the 8B LoRA block covers all six divergences rather than just one.
+# SEED is an env override, so seeds 0 and 1 for these divergences can be added later without editing.
 #
 # WHY IT MATTERS. At 8B, full fine-tuning and LoRA disagree sharply on RKL: canonical 74.2% against
 # 57.9%, non-overlapping intervals, with the cause identified as full-FT Amari failing to terminate
@@ -14,17 +15,17 @@
 # single 4B job in six days. LoRA is what makes this possible at all: the adapter replaces the
 # replicated frozen reference, which is what forced 8B full-FT onto four H100s.
 #
-# COST. Measured 77.6 s/step on L40S, so 1910 steps is ~41.4 h per run. Twenty runs at %3 is about
-# seven batches, i.e. roughly twelve days of wall clock. --time is 60 h (3-day tier); with
+# COST. Measured 77.6 s/step on L40S, so 1910 steps is ~41.4 h per run. Ten runs at %3 is four
+# batches, i.e. roughly seven days of wall clock. --time is 60 h (3-day tier); with
 # --save-adapter-every 200 an overrun costs one interval rather than the run.
 #
-#   array index = seed*10 + spec, spec = (rkl|adiv|js|hel|chi2) x (amari|canon)
-# Out: $OUT_DIR/stageB_lora8b_{div}_{norm}_bdpo_token_s{0,1}
+#   array index = spec, spec = (rkl|adiv|js|hel|chi2) x (amari|canon); seed fixed by $SEED
+# Out: $OUT_DIR/stageB_lora8b_{div}_{norm}_bdpo_token_s2
 #
 #SBATCH --account=aip-rudner
 #SBATCH --job-name=lora8ball
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --array=0-19%3
+#SBATCH --array=0-9%3
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
 #SBATCH --time=60:00:00
@@ -44,7 +45,8 @@ cd "$REPO/llm"
 OUT_DIR="/scratch/$USER/bregman-lab/llm/results/bench"; mkdir -p "$OUT_DIR"
 
 SPECS=(rkl:amari rkl:canon adiv:amari adiv:canon js:amari js:canon hel:amari hel:canon chi2:amari chi2:canon)
-SEED=$((SLURM_ARRAY_TASK_ID / 10)); SPEC="${SPECS[$((SLURM_ARRAY_TASK_ID % 10))]}"
+SEED="${SEED:-2}"                      # override with e.g.  SEED=0 sbatch --export=ALL,SEED ...
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"
 DIV="${SPEC%:*}"; NORM="${SPEC#*:}"
 
 echo "=== 8B LoRA [$DIV, norm=$NORM, seed=$SEED] 1xL40S (2ep) on $(hostname) | $(date) ==="; nvidia-smi
