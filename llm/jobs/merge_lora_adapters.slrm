@@ -1,0 +1,77 @@
+#!/bin/bash
+# Merge every LoRA adapter that has no corresponding _policy directory yet.
+#
+# WHY A JOB AND NOT THE LOGIN NODE. merge_adapter.py runs on CPU, so the login node looks like the
+# obvious place — but it was OOM-killed there ("Killed", no traceback, no output). Alliance login
+# nodes cap per-user memory, and loading a 4B model in bf16 plus the PEFT wrapper plus the merged
+# copy at save time goes over it. Killarney has no CPU-only partition, so this asks for the smallest
+# useful GPU allocation in the 3 h tier (168 l40s nodes, so it schedules quickly) and simply does not
+# use the GPU.
+#
+# It walks every *_adapter directory, skips any that already has a _policy beside it, infers the base
+# model from the directory name, merges, and writes a RECOVERY.md recording that the policy came from
+# a mid-training adapter rather than a finished run.
+#
+# Submit FROM llm/:  sbatch jobs/merge_lora_adapters.slrm
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=mergelora
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=2:30:00
+#SBATCH --output=logs/%x-%j.out
+
+set -uo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export PYTHONUNBUFFERED=1
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+S="/scratch/$USER/bregman-lab/llm/results/bench"
+
+for AD in "$S"/*_adapter; do
+  [ -d "$AD" ] || continue
+  OUT="${AD%_adapter}_policy"
+  BN=$(basename "$AD")
+  if [ -d "$OUT" ]; then echo "SKIP $BN — policy exists"; continue; fi
+  case "$BN" in
+    *lora4b*)      BASE="Qwen/Qwen3-4B-Base" ;;
+    *lora8b*)      BASE="Qwen/Qwen3-8B-Base" ;;
+    *lorallama1b*) BASE="meta-llama/Llama-3.2-1B-Instruct" ;;
+    *loragemma1b*) BASE="google/gemma-3-1b-it" ;;
+    *) echo "SKIP $BN — cannot infer base model from name"; continue ;;
+  esac
+  STEP=$(python - "$AD" <<'PY'
+import json,sys,os
+# the adapter is overwritten in place, so the step it holds is whatever the run last wrote
+print(os.path.basename(sys.argv[1]))
+PY
+)
+  echo "=== merging $BN  (base $BASE) | $(date) ==="
+  if python merge_adapter.py --adapter "$AD" --base "$BASE" --out "$OUT"; then
+    cat > "$OUT/RECOVERY.md" <<MD
+Recovered from a LoRA adapter, NOT a completed training run.
+
+The source job hit its walltime before the final step, so no merged policy was
+written. This directory is the last periodic adapter (--save-adapter-every)
+merged into $BASE.
+
+Consequences:
+  - fewer than the intended 2 epochs of data
+  - the linear LR schedule is defined over the FULL step count, so training
+    stopped with the learning rate still well above zero. This is NOT the same
+    as a shorter run that annealed properly.
+
+Treat results from this policy as a preliminary signal. For numbers comparable
+to the full-FT runs, retrain with a longer walltime.
+MD
+    echo "  wrote $OUT + RECOVERY.md"
+  else
+    echo "  FAILED $BN"
+  fi
+done
+echo "=== MERGE PASS DONE | $(date) ==="
