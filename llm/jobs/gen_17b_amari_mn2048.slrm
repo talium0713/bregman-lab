@@ -1,0 +1,70 @@
+#!/bin/bash
+# --max-new 2048 diagnostic for the 1.7B AMARI arms, seeds 0 and 1.
+#
+# THE QUESTION. At seed 1 the Amari arms truncate far more than at seed 0 (22.8-45.6% at the 1024
+# cap against 8.4-19.6%), while canonical barely moves between seeds (10.6-12.8% both times). Is
+# that seed-1 Amari writing longer answers that still terminate, or failing to terminate?
+#
+# The test is the one already used at 8B: double the cap and look at the MEDIAN. A model that
+# terminates holds its median (8B base 497 -> 497, 8B canonical 671 -> 671); one that does not
+# doubles it (8B full-FT Amari 1024 -> 2048, ratio 2.00). Truncation rate alone cannot separate
+# these -- 4B canonical truncates 2-4x more than Amari and is merely verbose.
+#
+# COVERAGE. Amari arms only, both seeds, so the two are directly comparable. Seed 0 already has RKL
+# and chi2 at 2048 from the earlier 17-arm sweep, so this fills in FKL, adiv, JS and Hellinger for
+# seed 0 and does all six for seed 1. Canonical is not re-run: its 1024 profile is flat across seeds
+# and divergences, so there is nothing to resolve.
+#
+# NOTE the seed-0 naming. Seed 0 predates the explicit --norm flag, so its Amari arms are
+# "{div}_bdpo" for adiv/JS/Hellinger/chi2 (their conventional generator IS f'(1)=0) but
+# "{div}_amari_bdpo" for RKL and FKL. Seed 1 is uniformly "{div}_amari_bdpo_s1".
+#
+#   array 0-3  seed 0: rkl, adiv, js, hel        (kl and chi2 already done)
+#   array 4-9  seed 1: kl, rkl, adiv, js, hel, chi2
+# Output: results/bench/arena_v01/<same tag as the 1024 run>_mn2048.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=g17b2048
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-9%4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+S="/scratch/$USER/bregman-lab/llm/results/bench"
+P="$REPO/llm/results/bench"
+
+# "policy_dir_basename|output_tag"
+SPECS=(
+  "stageB_rkl_amari_bdpo_token_bench1p7b_policy|rkl_amari_bdpo_mn2048"
+  "stageB_adiv_bdpo_token_bench1p7b_policy|adiv_bdpo_mn2048"
+  "stageB_js_bdpo_token_bench1p7b_policy|js_bdpo_mn2048"
+  "stageB_hel_bdpo_token_bench1p7b_policy|hel_bdpo_mn2048"
+  "stageB_kl_amari_bdpo_token_bench1p7b_s1_policy|kl_amari_bdpo_s1_mn2048"
+  "stageB_rkl_amari_bdpo_token_bench1p7b_s1_policy|rkl_amari_bdpo_s1_mn2048"
+  "stageB_adiv_amari_bdpo_token_bench1p7b_s1_policy|adiv_amari_bdpo_s1_mn2048"
+  "stageB_js_amari_bdpo_token_bench1p7b_s1_policy|js_amari_bdpo_s1_mn2048"
+  "stageB_hel_amari_bdpo_token_bench1p7b_s1_policy|hel_amari_bdpo_s1_mn2048"
+  "stageB_chi2_amari_bdpo_token_bench1p7b_s1_policy|chi2_amari_bdpo_s1_mn2048"
+)
+SPEC="${SPECS[$SLURM_ARRAY_TASK_ID]}"; BN="${SPEC%|*}"; TAG="${SPEC#*|}"
+POL=""; for r in "$S" "$P"; do [ -d "$r/$BN" ] && POL="$r/$BN" && break; done
+[ -n "$POL" ] || { echo "policy $BN not found in $S or $P"; exit 1; }
+
+echo "=== gen Arena-Hard v0.1 [$TAG] max-new 2048 from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 2048 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="
