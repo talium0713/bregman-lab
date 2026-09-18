@@ -1,0 +1,50 @@
+#!/bin/bash
+# Arena-Hard v0.1 generation for the 4B LoRA policies.
+#
+# Flags are byte-identical to gen_scale4b.slrm, which produced the 4B full-FT answers, so these are
+# judgeable against the same baseline. --max-new stays 1024: at 4B nothing truncates pathologically
+# (full-FT Amari 14.8% at cap, canonical 24.6%, and the 2048 diagnostic showed every 4B arm holds
+# its median), so raising the cap would only break comparability.
+#
+# THESE POLICIES ARE RECOVERED SNAPSHOTS, not finished runs — see RECOVERY.md in each directory. The
+# training job hit its 23 h walltime at step ~1100 of 1910, so each is the step-1000 adapter merged
+# back into Qwen3-4B-Base: about 1.05 epochs, with the linear LR schedule stopped near 48 % of peak
+# rather than annealed. Both arms are cut at the same step, so Amari vs canonical is a fair contrast;
+# comparison against the 4B full-FT numbers is not, and should be read as a direction only.
+#
+#   array index = seed*2 + {0:amari, 1:canon}
+# Output: results/bench/arena_v01/lora4b_kl_{amari,canon}_bdpo_s{seed}.jsonl
+#
+#SBATCH --account=aip-rudner
+#SBATCH --job-name=glora4b
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --array=0-1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/%x-%A_%a.out
+
+set -euo pipefail
+REPO="$SLURM_SUBMIT_DIR/.."
+export HF_HOME="/scratch/$USER/hf_cache"
+export HF_HUB_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+module load StdEnv/2023 python/3.11 cuda/12.2
+source "$REPO/venv_gpu/bin/activate"
+cd "$REPO/llm"
+
+NORMS=(amari canon)
+SEED=$((SLURM_ARRAY_TASK_ID / 2)); NORM="${NORMS[$((SLURM_ARRAY_TASK_ID % 2))]}"; DIV=kl
+POL="/scratch/$USER/bregman-lab/llm/results/bench/stageB_lora4b_${DIV}_${NORM}_bdpo_token_s${SEED}_policy"
+TAG="lora4b_${DIV}_${NORM}_bdpo_s${SEED}"
+[ -d "$POL" ] || { echo "policy $POL missing"; exit 1; }
+[ -f "$POL/RECOVERY.md" ] && echo "[note] $POL is a recovered mid-training snapshot"
+
+echo "=== gen Arena-Hard v0.1 [$TAG] from $POL on $(hostname) | $(date) ==="; nvidia-smi
+python gen_bench.py --model "$POL" --generator "$TAG" --prompts data/arena_hard_v01.jsonl \
+  --format arenav2 --think default --system "You are a helpful assistant." \
+  --rep-penalty 1.05 --max-new 1024 --temperature 0.0 --out "results/bench/arena_v01/${TAG}.jsonl"
+echo "=== done $TAG | $(date) ==="
